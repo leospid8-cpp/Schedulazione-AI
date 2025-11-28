@@ -4,206 +4,209 @@ import json
 import time
 from backend import DatabaseManager, LineaManager, OrdineManager
 
-# --- CONFIGURAZIONE ---
-st.set_page_config(page_title="MES AI Scheduler Pro", page_icon="🏭", layout="wide")
+# --- SETUP ---
+st.set_page_config(page_title="MES Dashboard 5.0", page_icon="📊", layout="wide")
 
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     model = genai.GenerativeModel('models/gemini-2.0-flash')
 except:
-    st.error("Chiave Google mancante. Impostala nei Secrets.")
+    st.error("Chiavi API mancanti.")
     st.stop()
 
-# --- INIZIALIZZAZIONE DB ---
 if "db" not in st.session_state:
     st.session_state.db = DatabaseManager()
     st.session_state.linea_mgr = LineaManager(st.session_state.db)
     st.session_state.ordine_mgr = OrdineManager(st.session_state.db)
 
-# --- NUOVO ESECUTORE MULTI-AZIONE 🧠 ---
+# --- ESECUTORE AZIONI ---
 def esegui_azioni_ai(json_input):
-    log_azioni = []
+    log = []
     try:
-        # L'AI potrebbe restituire una lista [...] o un oggetto singolo {...}
         dati = json.loads(json_input)
+        if isinstance(dati, dict): dati = [dati] # Normalizza a lista
         
-        # Se è un singolo oggetto, lo trasformiamo in lista per gestirlo uguale
-        if isinstance(dati, dict):
-            dati = [dati]
-            
-        # Eseguiamo tutte le azioni in sequenza
         for azione in dati:
-            comando = azione.get("comando")
-            
-            if comando == "assegna_linea":
+            cmd = azione.get("comando")
+            if cmd == "assegna_linea":
                 lid = azione.get("linea_id")
                 cod = azione.get("codice_ordine")
                 st.session_state.linea_mgr.assegna_commessa(lid, cod)
-                log_azioni.append(f"✅ Linea {lid} -> Assegnata a {cod}")
-                
-            elif comando == "ferma_linea":
+                log.append(f"✅ Linea {lid} -> {cod}")
+            elif cmd == "ferma_linea":
                 lid = azione.get("linea_id")
                 motivo = azione.get("motivo")
                 st.session_state.linea_mgr.set_stato(lid, "Ferma", motivo)
-                log_azioni.append(f"⛔ Linea {lid} FERMATA ({motivo})")
-
-        if not log_azioni:
-            return "⚠️ Nessuna azione eseguita."
-            
-        return "\n".join(log_azioni)
-
-    except Exception as e:
-        return f"❌ Errore critico nel parsing azioni: {e}"
+                log.append(f"⛔ Linea {lid} STOP ({motivo})")
+        
+        return "\n".join(log) if log else "Nessuna azione."
+    except Exception as e: return f"Errore: {e}"
 
 # ==========================================
-# BARRA LATERALE
+# DASHBOARD SUPERIORE (KPI GLOBALI)
+# ==========================================
+st.title("📊 Controllo Produzione Giornaliera")
+
+# 1. Calcolo Dati Globali
+tot_prodotti = st.session_state.linea_mgr.get_totale_produzione()
+tot_target = st.session_state.ordine_mgr.get_totale_target()
+ordini_raw = st.session_state.ordine_mgr.get_ordini()
+
+# 2. Visualizzazione Grafica
+col1, col2, col3 = st.columns(3)
+col1.metric("📦 Pezzi Prodotti (Oggi)", tot_prodotti)
+col2.metric("🎯 Target Totale", tot_target)
+delta = tot_prodotti - tot_target
+col3.metric("📉 Delta", delta, delta_color="normal")
+
+# Barra di Progresso
+if tot_target > 0:
+    progress = min(tot_prodotti / tot_target, 1.0)
+    st.progress(progress, text=f"Avanzamento Turno: {int(progress*100)}%")
+else:
+    st.info("Nessun ordine attivo. Crea ordini dalla barra laterale.")
+
+st.divider()
+
+# ==========================================
+# BARRA LATERALE (CONTROLLI)
 # ==========================================
 with st.sidebar:
-    st.header("🎛️ Pannello Operatore")
+    st.header("🎛️ Operatore")
     
-    with st.expander("🛠️ Manutenzione"):
-        if st.button("⚠️ RESETTA GIORNATA"):
+    with st.expander("🛠️ Reset"):
+        if st.button("⚠️ NUOVO TURNO (Reset)"):
             st.session_state.ordine_mgr.reset_giornata()
-            st.warning("Reset completato.")
+            st.warning("Turno resettato.")
+            st.rerun()
 
-    st.divider()
-
-    # --- INPUT ORDINI ---
-    with st.expander("📄 Crea Ordine", expanded=True):
-        list_modelli = [
-            "Diamantato Porsche", "Diamantato Ferrari", "Diamantato Audi", 
-            "3-Mani Porsche", "3-Mani Ferrari", "3-Mani Audi", "3-Mani Mercedes"
-        ]
-        modello = st.selectbox("Modello", list_modelli)
-        cod = st.text_input("Codice (es. ORD-01)")
-        qta = st.number_input("Quantità", 50, 5000, 250)
-        tempo = st.time_input("Scadenza", value=None)
-        
-        if st.button("Inserisci Ordine"):
-            deadline_str = str(tempo) if tempo else "Fine Turno"
-            st.session_state.ordine_mgr.add_ordine(cod, modello, qta, deadline_str)
-            st.success("Ordine Creato!")
+    with st.expander("📄 Nuovo Ordine", expanded=True):
+        modelli = ["Porsche", "Ferrari", "Audi", "Mercedes"]
+        mod = st.selectbox("Modello", modelli)
+        cod = st.text_input("Codice", "ORD-01")
+        qta = st.number_input("Qta", 100, 5000, 500)
+        dead = st.time_input("Scadenza")
+        if st.button("Inserisci"):
+            st.session_state.ordine_mgr.add_ordine(cod, mod, qta, str(dead))
             st.rerun()
 
     st.divider()
-    st.header("🏭 Linee (Live)")
-
-    # --- MONITORAGGIO ---
-    linee = st.session_state.linea_mgr.get_status()
+    st.header("🏭 Dettaglio Linee")
     
+    linee = st.session_state.linea_mgr.get_status()
     for l in linee:
-        icon = "🟢" if l['stato'] == 'Attiva' else "🔴"
-        with st.expander(f"{icon} {l['nome']}"):
+        color = "🟢" if l['stato']=='Attiva' else "🔴"
+        # Titolo Expander con Target specifico della linea
+        titolo = f"{color} {l['nome']}"
+        
+        with st.expander(titolo):
             st.caption(f"Vincoli: {l['vincoli']}")
-            if l['target_assegnato']:
-                st.info(f"Lavora su: **{l['target_assegnato']}**")
-            else:
-                st.warning("In attesa di ordini")
             
+            # Mostra cosa sta facendo QUESTA linea vs il Totale
+            if l['target_assegnato']:
+                # Cerchiamo quanto è il target di quell'ordine
+                target_ord = next((o['quantita'] for o in ordini_raw if o['codice'] == l['target_assegnato']), "N/A")
+                st.info(f"🔨 Lavora su: **{l['target_assegnato']}**\n\n(Fatti {l['pezzi_fatti']} su {target_ord} tot ordine)")
+            else:
+                st.warning("💤 In attesa")
+
             c1, c2 = st.columns(2)
             c1.metric("Buoni", l['pezzi_fatti'])
             c2.metric("Scarti", l['pezzi_scarti'])
             
             if st.button(f"+10 OK L{l['id']}"):
                 st.session_state.linea_mgr.update_counts(l['id'], buoni=10); st.rerun()
-            if st.button(f"+1 Scarto L{l['id']}"):
+            if st.button(f"+1 KO L{l['id']}"):
                 st.session_state.linea_mgr.update_counts(l['id'], scarti=1); st.rerun()
-
+            
             if l['stato'] == 'Attiva':
-                if st.button(f"⛔ STOP L{l['id']}"):
+                if st.button(f"STOP L{l['id']}"):
                     st.session_state.linea_mgr.set_stato(l['id'], "Ferma", "Manuale"); st.rerun()
             else:
-                if st.button(f"✅ START L{l['id']}"):
+                if st.button(f"START L{l['id']}"):
                     st.session_state.linea_mgr.set_stato(l['id'], "Attiva", ""); st.rerun()
 
 # ==========================================
-# AI SCHEDULATORE (MULTITASKING)
+# CHATBOT INTELLIGENTE
 # ==========================================
-st.title("🧠 AI Schedulatore (Ottimizzazione Parallela)")
+col_chat, col_kpi = st.columns([2, 1])
 
-# Prepariamo i dati per il prompt
-dati_linee = []
-for l in linee:
-    dati_linee.append(f"- ID {l['id']} ({l['nome']}): Stato {l['stato']} | Attualmente fa: {l['target_assegnato']} | Vincoli: {l['vincoli']}")
-str_linee = "\n".join(dati_linee)
+with col_chat:
+    st.subheader("🤖 AI Factory Manager")
+    
+    # Prepariamo il contesto testuale
+    context_lines = "\n".join([f"- L{l['id']} ({l['nome']}): Stato {l['stato']} | Fa: {l['target_assegnato']} | Prod: {l['pezzi_fatti']}" for l in linee])
+    context_orders = st.session_state.ordine_mgr.get_ordini_text()
+    
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{"role": "assistant", "content": "Ciao! Sono pronto. Chiedimi informazioni sugli ordini o dimmi di schedulare la produzione."}]
 
-dati_ordini = st.session_state.ordine_mgr.get_ordini()
+    for msg in st.session_state.messages:
+        st.chat_message(msg["role"]).write(msg["content"])
 
-# Chat
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Ciao! Sono pronto a schedulare più linee contemporaneamente per ottimizzare i flussi."}]
+    prompt = st.chat_input("Es: 'Quali ordini abbiamo?' oppure 'Schedula la Ferrari'")
 
-for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
-
-prompt = st.chat_input("Es: 'Schedula la produzione per finire prima le Ferrari'")
-
-if prompt:
-    st.chat_message("user").write(prompt)
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # --- PROMPT AVANZATO PER MULTI-AZIONE ---
-    full_prompt = f"""
-    Sei il Responsabile Schedulazione (MES AI).
-    
-    SITUAZIONE IMPIANTO:
-    {str_linee}
-    
-    ORDINI IN CODA:
-    {dati_ordini}
-    
-    REGOLE DI OTTIMIZZAZIONE (Logica di pensiero):
-    1. Se un ordine è grande (es. > 200 pezzi), SUDDIVIDILO su tutte le linee compatibili disponibili per finire prima (Parallelismo).
-    2. Dai priorità agli ordini con quantità maggiore o scadenza vicina.
-    3. VINCOLI:
-       - L1: Solo Porsche/Mercedes.
-       - L2, L3: Solo Ferrari/Audi.
-       - L4, L5: Jolly (Usale per aiutare chi è in ritardo).
-    
-    DOMANDA UTENTE: {prompt}
-    
-    OUTPUT RICHIESTO:
-    Se devi agire, rispondi SOLAMENTE con una LISTA JSON di comandi.
-    Esempio: Dividere Ferrari su L2 e L3:
-    [
-      {{"comando": "assegna_linea", "linea_id": 2, "codice_ordine": "ORD-FERRARI"}},
-      {{"comando": "assegna_linea", "linea_id": 3, "codice_ordine": "ORD-FERRARI"}}
-    ]
-    
-    Se non devi agire, spiega il piano a parole.
-    """
-    
-    with st.chat_message("assistant"):
-        with st.spinner("Calcolo allocazione risorse..."):
-            try:
-                response = model.generate_content(full_prompt)
-                risposta = response.text.strip()
-                
-                # Parsing Intelligente (Cerca liste JSON o oggetti singoli)
-                json_exec = None
-                
-                # Caso Markdown
-                if "```json" in risposta:
-                    s = risposta.find("```json") + 7
-                    e = risposta.find("```", s)
-                    json_exec = risposta[s:e].strip()
-                # Caso Lista JSON [...]
-                elif risposta.startswith("[") and risposta.endswith("]"):
-                    json_exec = risposta
-                # Caso Oggetto Singolo {...}
-                elif risposta.startswith("{") and risposta.endswith("}"):
-                    json_exec = risposta
-                
-                if json_exec:
-                    # Esegue tutte le azioni in un colpo solo
-                    esito = esegui_azioni_ai(json_exec)
-                    st.success(esito) # Mostra report completo
-                    st.session_state.messages.append({"role": "assistant", "content": esito})
-                    time.sleep(2)
-                    st.rerun()
-                else:
-                    st.write(risposta)
-                    st.session_state.messages.append({"role": "assistant", "content": risposta})
+    if prompt:
+        st.chat_message("user").write(prompt)
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        full_prompt = f"""
+        Sei il Responsabile Produzione.
+        
+        DATI LIVE:
+        {context_lines}
+        
+        ORDINI ATTIVI:
+        {context_orders}
+        
+        VINCOLI:
+        L1: Porsche/Mercedes | L2,L3: Ferrari/Audi | L4,L5: Jolly.
+        
+        DOMANDA UTENTE: {prompt}
+        
+        ISTRUZIONI IMPORTANTI (Modalità Doppia):
+        1. MODALITÀ INFORMATIVA: Se l'utente chiede "Quali ordini ci sono?", "Come vanno le linee?", "Specifiche ordini", RISPONDI SOLO A PAROLE. Spiega la situazione chiaramente. NON generare JSON.
+        
+        2. MODALITÀ AZIONE: Se l'utente chiede "Schedula", "Assegna", "Sposta", "Ferma", ALLORA genera una lista JSON per eseguire i comandi.
+           Formato JSON: [{{"comando": "assegna_linea", "linea_id": 1, "codice_ordine": "..."}}]
+        
+        Sii intelligente: capisci se l'utente vuole sapere (parla) o fare (agisci).
+        """
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Analisi..."):
+                try:
+                    response = model.generate_content(full_prompt)
+                    answ = response.text.strip()
                     
-            except Exception as e:
-                st.error(f"Errore AI: {e}")
+                    # Logica di riconoscimento JSON
+                    json_found = None
+                    if "```json" in answ:
+                        s = answ.find("```json")+7; e = answ.find("```", s)
+                        json_found = answ[s:e].strip()
+                    elif answ.startswith("[") and answ.endswith("]"):
+                        json_found = answ
+                    
+                    if json_found:
+                        # È un'azione!
+                        report = esegui_azione_ai(json_found)
+                        st.success(report)
+                        st.session_state.messages.append({"role": "assistant", "content": report})
+                        time.sleep(2); st.rerun()
+                    else:
+                        # È una risposta informativa
+                        st.write(answ)
+                        st.session_state.messages.append({"role": "assistant", "content": answ})
+                        
+                except Exception as e:
+                    st.error(f"Errore: {e}")
+
+# KPI Rapidi a destra della chat (Opzionale)
+with col_kpi:
+    st.info("📋 **Ordini Attivi**")
+    if ordini_raw:
+        for o in ordini_raw:
+            st.write(f"**{o['codice']}**: {o['modello']}")
+            st.progress(0, text=f"Target: {o['quantita']}")
+    else:
+        st.caption("Nessun ordine")
