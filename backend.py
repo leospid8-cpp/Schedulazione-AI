@@ -2,13 +2,14 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import streamlit as st
 
-# --- LIVELLO INFRASTRUTTURA (Connessione) ---
+# --- LIVELLO INFRASTRUTTURA (Connessione Sicura) ---
 class DatabaseManager:
     def __init__(self):
+        # Legge la password dai Secrets (sia in locale che su Cloud)
         try:
             self.db_url = st.secrets["SUPABASE_URL"]
         except:
-            st.error("❌ Errore: Configura SUPABASE_URL in .streamlit/secrets.toml")
+            st.error("❌ Errore: Manca 'SUPABASE_URL'. Se sei in locale, controlla .streamlit/secrets.toml. Se sei su Cloud, controlla i Secrets nelle impostazioni.")
             st.stop()
 
     def execute(self, sql, params=()):
@@ -36,12 +37,12 @@ class LineaManager:
         self.init_lines()
 
     def init_lines(self):
-        # 1. Creazione Tabella (Se non esiste)
+        # Creazione Tabella
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS linee_produttive (
                 id INTEGER PRIMARY KEY,
                 nome TEXT,
-                vincoli TEXT,   -- Es: "Solo Porsche, Mercedes"
+                vincoli TEXT,
                 stato TEXT DEFAULT 'Attiva',
                 motivo_fermo TEXT DEFAULT '',
                 pezzi_fatti INTEGER DEFAULT 0,
@@ -50,7 +51,7 @@ class LineaManager:
             );
         """)
         
-        # 2. Inserimento Dati Fissi (Solo se la tabella è vuota)
+        # Inserimento Dati Iniziali (Solo se vuota)
         if not self.db.execute("SELECT * FROM linee_produttive"):
             lines_setup = [
                 (1, "Linea 1 (Speciale)", "SOLO Porsche, Mercedes"),
@@ -80,6 +81,9 @@ class LineaManager:
             "UPDATE linee_produttive SET stato = %s, motivo_fermo = %s WHERE id = %s", 
             (stato, motivo, linea_id)
         )
+    
+    def assegna_commessa(self, linea_id, codice_commessa):
+        self.db.execute("UPDATE linee_produttive SET target_assegnato = %s WHERE id = %s", (codice_commessa, linea_id))
 
 # --- LIVELLO LOGICA: ORDINI GIORNALIERI ---
 class OrdineManager:
@@ -109,6 +113,5 @@ class OrdineManager:
         return "\n".join([f"- {o['codice']}: {o['quantita']}x {o['modello']} (Entro: {o['deadline']})" for o in data])
 
     def reset_giornata(self):
-        # Pulisce tutto per ripartire da zero
         self.db.execute("DELETE FROM ordini_produzione")
         self.db.execute("UPDATE linee_produttive SET pezzi_fatti=0, pezzi_scarti=0, stato='Attiva', motivo_fermo='', target_assegnato=''")
