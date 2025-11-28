@@ -8,26 +8,51 @@ from backend import DatabaseManager, LineaManager, OrdineManager
 st.set_page_config(page_title="MES AI Scheduler", page_icon="🏭", layout="wide")
 
 try:
+    # RECUPERA LA CHIAVE DAI SECRETS (Cloud)
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     model = genai.GenerativeModel('models/gemini-2.0-flash')
 except:
-    st.error("Chiavi API mancanti.")
+    st.error("Chiave Google mancante. Impostala nei Secrets.")
     st.stop()
 
-# --- INIZIALIZZAZIONE ---
+# --- INIZIALIZZAZIONE DB ---
 if "db" not in st.session_state:
-    db = DatabaseManager()
-    st.session_state.linea_mgr = LineaManager(db)
-    st.session_state.ordine_mgr = OrdineManager(db)
+    st.session_state.db = DatabaseManager()
+    st.session_state.linea_mgr = LineaManager(st.session_state.db)
+    st.session_state.ordine_mgr = OrdineManager(st.session_state.db)
+
+# --- FUNZIONE AGENTE (ESECUTORE) ---
+def esegui_azione_ai(azione_json):
+    try:
+        dati = json.loads(azione_json)
+        comando = dati.get("comando")
+        
+        if comando == "assegna_linea":
+            linea_id = dati.get("linea_id")
+            codice = dati.get("codice_ordine")
+            st.session_state.linea_mgr.assegna_commessa(linea_id, codice)
+            return f"✅ SCHEDULAZIONE: Linea {linea_id} assegnata a {codice}."
+            
+        return "⚠️ Comando non riconosciuto."
+    except Exception as e:
+        return f"❌ Errore esecuzione: {e}"
 
 # ==========================================
-# BARRA LATERALE: IL CUORE PRODUTTIVO
+# BARRA LATERALE: CONTROLLO OPERATIVO
 # ==========================================
 with st.sidebar:
     st.header("🎛️ Pannello Operatore")
     
-    # --- SEZIONE A: INPUT ORDINI ---
-    with st.expander("📄 Crea Ordine Giornaliero", expanded=True):
+    # --- RESET GIORNATA ---
+    with st.expander("🛠️ Manutenzione Dati"):
+        if st.button("⚠️ RESETTA GIORNATA (Pulisci DB)"):
+            st.session_state.ordine_mgr.reset_giornata()
+            st.warning("Database resettato. Ricarica la pagina.")
+
+    st.divider()
+
+    # --- INPUT ORDINI ---
+    with st.expander("📄 Crea Ordine", expanded=True):
         list_modelli = [
             "Diamantato Porsche", "Diamantato Ferrari", "Diamantato Audi", 
             "3-Mani Porsche", "3-Mani Ferrari", "3-Mani Audi", "3-Mani Mercedes"
@@ -46,23 +71,22 @@ with st.sidebar:
     st.divider()
     st.header("🏭 Stato Linee (Live)")
 
-    # --- SEZIONE B: MONITORAGGIO 5 LINEE ---
-    # Recuperiamo i dati aggiornati
+    # --- MONITORAGGIO 5 LINEE ---
     linee = st.session_state.linea_mgr.get_status()
     
     for l in linee:
-        # Colore pallino stato
         status_color = "🟢" if l['stato'] == 'Attiva' else "🔴"
         
         with st.expander(f"{status_color} {l['nome']}"):
             st.caption(f"Vincoli: {l['vincoli']}")
+            if l['target_assegnato']:
+                st.info(f"Lavora su: **{l['target_assegnato']}**")
             
             # Controlli Produzione
             c1, c2 = st.columns(2)
             c1.metric("Buoni", l['pezzi_fatti'])
             c2.metric("Scarti", l['pezzi_scarti'])
             
-            # Pulsanti rapidi produzione
             if st.button(f"+10 OK L{l['id']}"):
                 st.session_state.linea_mgr.update_counts(l['id'], buoni=10)
                 st.rerun()
@@ -70,10 +94,9 @@ with st.sidebar:
                 st.session_state.linea_mgr.update_counts(l['id'], scarti=1)
                 st.rerun()
             
-            # Gestione Guasti
             st.write("---")
             if l['stato'] == 'Attiva':
-                motivo = st.text_input(f"Motivo Stop L{l['id']}", placeholder="Es. Guasto robot")
+                motivo = st.text_input(f"Motivo Stop L{l['id']}", placeholder="Guasto...")
                 if st.button(f"⛔ FERMA L{l['id']}"):
                     st.session_state.linea_mgr.set_stato(l['id'], "Ferma", motivo)
                     st.rerun()
@@ -83,20 +106,15 @@ with st.sidebar:
                     st.session_state.linea_mgr.set_stato(l['id'], "Attiva", "")
                     st.rerun()
 
-    st.divider()
-    if st.button("⚠️ RESET TOTALE GIORNATA"):
-        st.session_state.ordine_mgr.reset_giornata()
-        st.warning("Database pulito. Ricarica la pagina.")
-
 # ==========================================
-# CHATBOT SCHEDULATORE (CENTRALE)
+# CHATBOT SCHEDULATORE
 # ==========================================
 st.title("🧠 AI Schedulatore Produzione")
 
-# 1. Recupero Dati Completi per l'AI
+# 1. Recupero Dati per l'AI
 dati_linee = []
 for l in linee:
-    dati_linee.append(f"- ID {l['id']} ({l['nome']}): Stato {l['stato']} | Prod: {l['pezzi_fatti']} | Scarti: {l['pezzi_scarti']} | Vincoli: {l['vincoli']}")
+    dati_linee.append(f"- ID {l['id']} ({l['nome']}): Stato {l['stato']} | Prod: {l['pezzi_fatti']} | Scarti: {l['pezzi_scarti']} | Lavora su: {l['target_assegnato']} | Vincoli: {l['vincoli']}")
 str_linee = "\n".join(dati_linee)
 
 dati_ordini = st.session_state.ordine_mgr.get_ordini()
@@ -108,44 +126,59 @@ if "messages" not in st.session_state:
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
-prompt = st.chat_input("Es: 'Abbiamo un problema sulla linea 2, come riorganizziamo gli ordini Ferrari?'")
+prompt = st.chat_input("Es: 'Come gestiamo l'ordine Ferrari se la linea 2 è ferma?'")
 
 if prompt:
     st.chat_message("user").write(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # 3. Prompt Ingegneristico
+    # 3. Prompt Schedulatore
     full_prompt = f"""
-    Sei un Responsabile di Produzione (MES) esperto in schedulazione.
+    Sei un Responsabile MES esperto in schedulazione.
     
-    OBIETTIVO:
-    Organizzare la produzione dei cerchioni rispettando TASSATIVAMENTE i vincoli delle linee.
-    
-    DATI IMPIANTO (Real-time):
+    DATI IMPIANTO:
     {str_linee}
     
-    ORDINI DA EVADERE (Target):
+    ORDINI DA EVADERE:
     {dati_ordini}
     
-    VINCOLI RIGIDI DA RISPETTARE:
-    - Linea 1: Fa SOLO Porsche e Mercedes.
-    - Linea 2 e 3: Fanno SOLO Ferrari e Audi.
-    - Linea 4 e 5: Sono JOLLY (possono fare tutto).
+    VINCOLI RIGIDI:
+    - Linea 1: SOLO Porsche, Mercedes.
+    - Linea 2 e 3: SOLO Ferrari, Audi.
+    - Linea 4 e 5: JOLLY (Tutti).
     
     DOMANDA UTENTE: {prompt}
     
     ISTRUZIONI:
-    - Analizza gli ordini e assegnali alle linee corrette.
-    - Se una linea è FERMA (es. Linea 2), devi spostare il suo carico sulle linee JOLLY (4 o 5).
-    - Tieni conto degli scarti: se una linea ha molti scarti, suggerisci di rallentarla o controllarla.
-    - Rispondi con un piano d'azione schematico e chiaro.
+    - Se l'utente chiede un piano, proponi quali linee usare per quali ordini.
+    - Se devi assegnare ufficialmente una linea, usa SOLO questo JSON:
+      {{"comando": "assegna_linea", "linea_id": 1, "codice_ordine": "ORD-XX"}}
     """
     
     with st.chat_message("assistant"):
-        with st.spinner("Calcolo ottimizazzione flussi..."):
+        with st.spinner("Calcolo ottimizzazione..."):
             try:
                 response = model.generate_content(full_prompt)
-                st.write(response.text)
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
+                risposta = response.text.strip()
+                
+                # Parsing JSON (Fix robusto)
+                json_exec = None
+                if "```json" in risposta:
+                    s = risposta.find("```json") + 7
+                    e = risposta.find("```", s)
+                    json_exec = risposta[s:e].strip()
+                elif risposta.startswith("{") and risposta.endswith("}"):
+                    json_exec = risposta
+                
+                if json_exec:
+                    esito = esegui_azione_ai(json_exec)
+                    st.success(esito)
+                    st.session_state.messages.append({"role": "assistant", "content": esito})
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.write(risposta)
+                    st.session_state.messages.append({"role": "assistant", "content": risposta})
+                    
             except Exception as e:
                 st.error(f"Errore AI: {e}")
