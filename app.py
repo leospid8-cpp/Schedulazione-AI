@@ -5,10 +5,9 @@ import time
 from backend import DatabaseManager, LineaManager, OrdineManager
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="MES AI Scheduler", page_icon="🏭", layout="wide")
+st.set_page_config(page_title="MES AI Scheduler Pro", page_icon="🏭", layout="wide")
 
 try:
-    # RECUPERA LA CHIAVE DAI SECRETS (Cloud)
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     model = genai.GenerativeModel('models/gemini-2.0-flash')
 except:
@@ -21,33 +20,51 @@ if "db" not in st.session_state:
     st.session_state.linea_mgr = LineaManager(st.session_state.db)
     st.session_state.ordine_mgr = OrdineManager(st.session_state.db)
 
-# --- FUNZIONE AGENTE (ESECUTORE) ---
-def esegui_azione_ai(azione_json):
+# --- NUOVO ESECUTORE MULTI-AZIONE 🧠 ---
+def esegui_azioni_ai(json_input):
+    log_azioni = []
     try:
-        dati = json.loads(azione_json)
-        comando = dati.get("comando")
+        # L'AI potrebbe restituire una lista [...] o un oggetto singolo {...}
+        dati = json.loads(json_input)
         
-        if comando == "assegna_linea":
-            linea_id = dati.get("linea_id")
-            codice = dati.get("codice_ordine")
-            st.session_state.linea_mgr.assegna_commessa(linea_id, codice)
-            return f"✅ SCHEDULAZIONE: Linea {linea_id} assegnata a {codice}."
+        # Se è un singolo oggetto, lo trasformiamo in lista per gestirlo uguale
+        if isinstance(dati, dict):
+            dati = [dati]
             
-        return "⚠️ Comando non riconosciuto."
+        # Eseguiamo tutte le azioni in sequenza
+        for azione in dati:
+            comando = azione.get("comando")
+            
+            if comando == "assegna_linea":
+                lid = azione.get("linea_id")
+                cod = azione.get("codice_ordine")
+                st.session_state.linea_mgr.assegna_commessa(lid, cod)
+                log_azioni.append(f"✅ Linea {lid} -> Assegnata a {cod}")
+                
+            elif comando == "ferma_linea":
+                lid = azione.get("linea_id")
+                motivo = azione.get("motivo")
+                st.session_state.linea_mgr.set_stato(lid, "Ferma", motivo)
+                log_azioni.append(f"⛔ Linea {lid} FERMATA ({motivo})")
+
+        if not log_azioni:
+            return "⚠️ Nessuna azione eseguita."
+            
+        return "\n".join(log_azioni)
+
     except Exception as e:
-        return f"❌ Errore esecuzione: {e}"
+        return f"❌ Errore critico nel parsing azioni: {e}"
 
 # ==========================================
-# BARRA LATERALE: CONTROLLO OPERATIVO
+# BARRA LATERALE
 # ==========================================
 with st.sidebar:
     st.header("🎛️ Pannello Operatore")
     
-    # --- RESET GIORNATA ---
-    with st.expander("🛠️ Manutenzione Dati"):
-        if st.button("⚠️ RESETTA GIORNATA (Pulisci DB)"):
+    with st.expander("🛠️ Manutenzione"):
+        if st.button("⚠️ RESETTA GIORNATA"):
             st.session_state.ordine_mgr.reset_giornata()
-            st.warning("Database resettato. Ricarica la pagina.")
+            st.warning("Reset completato.")
 
     st.divider()
 
@@ -59,7 +76,7 @@ with st.sidebar:
         ]
         modello = st.selectbox("Modello", list_modelli)
         cod = st.text_input("Codice (es. ORD-01)")
-        qta = st.number_input("Target Pz", 100, 5000, 500)
+        qta = st.number_input("Quantità", 50, 5000, 250)
         tempo = st.time_input("Scadenza", value=None)
         
         if st.button("Inserisci Ordine"):
@@ -69,110 +86,118 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.header("🏭 Stato Linee (Live)")
+    st.header("🏭 Linee (Live)")
 
-    # --- MONITORAGGIO 5 LINEE ---
+    # --- MONITORAGGIO ---
     linee = st.session_state.linea_mgr.get_status()
     
     for l in linee:
-        status_color = "🟢" if l['stato'] == 'Attiva' else "🔴"
-        
-        with st.expander(f"{status_color} {l['nome']}"):
+        icon = "🟢" if l['stato'] == 'Attiva' else "🔴"
+        with st.expander(f"{icon} {l['nome']}"):
             st.caption(f"Vincoli: {l['vincoli']}")
             if l['target_assegnato']:
                 st.info(f"Lavora su: **{l['target_assegnato']}**")
+            else:
+                st.warning("In attesa di ordini")
             
-            # Controlli Produzione
             c1, c2 = st.columns(2)
             c1.metric("Buoni", l['pezzi_fatti'])
             c2.metric("Scarti", l['pezzi_scarti'])
             
             if st.button(f"+10 OK L{l['id']}"):
-                st.session_state.linea_mgr.update_counts(l['id'], buoni=10)
-                st.rerun()
+                st.session_state.linea_mgr.update_counts(l['id'], buoni=10); st.rerun()
             if st.button(f"+1 Scarto L{l['id']}"):
-                st.session_state.linea_mgr.update_counts(l['id'], scarti=1)
-                st.rerun()
-            
-            st.write("---")
+                st.session_state.linea_mgr.update_counts(l['id'], scarti=1); st.rerun()
+
             if l['stato'] == 'Attiva':
-                motivo = st.text_input(f"Motivo Stop L{l['id']}", placeholder="Guasto...")
-                if st.button(f"⛔ FERMA L{l['id']}"):
-                    st.session_state.linea_mgr.set_stato(l['id'], "Ferma", motivo)
-                    st.rerun()
+                if st.button(f"⛔ STOP L{l['id']}"):
+                    st.session_state.linea_mgr.set_stato(l['id'], "Ferma", "Manuale"); st.rerun()
             else:
-                st.error(f"FERMA: {l['motivo_fermo']}")
-                if st.button(f"✅ RIPARTI L{l['id']}"):
-                    st.session_state.linea_mgr.set_stato(l['id'], "Attiva", "")
-                    st.rerun()
+                if st.button(f"✅ START L{l['id']}"):
+                    st.session_state.linea_mgr.set_stato(l['id'], "Attiva", ""); st.rerun()
 
 # ==========================================
-# CHATBOT SCHEDULATORE
+# AI SCHEDULATORE (MULTITASKING)
 # ==========================================
-st.title("🧠 AI Schedulatore Produzione")
+st.title("🧠 AI Schedulatore (Ottimizzazione Parallela)")
 
-# 1. Recupero Dati per l'AI
+# Prepariamo i dati per il prompt
 dati_linee = []
 for l in linee:
-    dati_linee.append(f"- ID {l['id']} ({l['nome']}): Stato {l['stato']} | Prod: {l['pezzi_fatti']} | Scarti: {l['pezzi_scarti']} | Lavora su: {l['target_assegnato']} | Vincoli: {l['vincoli']}")
+    dati_linee.append(f"- ID {l['id']} ({l['nome']}): Stato {l['stato']} | Attualmente fa: {l['target_assegnato']} | Vincoli: {l['vincoli']}")
 str_linee = "\n".join(dati_linee)
 
 dati_ordini = st.session_state.ordine_mgr.get_ordini()
 
-# 2. Chat Interface
+# Chat
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Ciao! Vedo i vincoli delle 5 linee e gli ordini. Chiedimi di ottimizzare la schedulazione."}]
+    st.session_state.messages = [{"role": "assistant", "content": "Ciao! Sono pronto a schedulare più linee contemporaneamente per ottimizzare i flussi."}]
 
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
-prompt = st.chat_input("Es: 'Come gestiamo l'ordine Ferrari se la linea 2 è ferma?'")
+prompt = st.chat_input("Es: 'Schedula la produzione per finire prima le Ferrari'")
 
 if prompt:
     st.chat_message("user").write(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # 3. Prompt Schedulatore
+    # --- PROMPT AVANZATO PER MULTI-AZIONE ---
     full_prompt = f"""
-    Sei un Responsabile MES esperto in schedulazione.
+    Sei il Responsabile Schedulazione (MES AI).
     
-    DATI IMPIANTO:
+    SITUAZIONE IMPIANTO:
     {str_linee}
     
-    ORDINI DA EVADERE:
+    ORDINI IN CODA:
     {dati_ordini}
     
-    VINCOLI RIGIDI:
-    - Linea 1: SOLO Porsche, Mercedes.
-    - Linea 2 e 3: SOLO Ferrari, Audi.
-    - Linea 4 e 5: JOLLY (Tutti).
+    REGOLE DI OTTIMIZZAZIONE (Logica di pensiero):
+    1. Se un ordine è grande (es. > 200 pezzi), SUDDIVIDILO su tutte le linee compatibili disponibili per finire prima (Parallelismo).
+    2. Dai priorità agli ordini con quantità maggiore o scadenza vicina.
+    3. VINCOLI:
+       - L1: Solo Porsche/Mercedes.
+       - L2, L3: Solo Ferrari/Audi.
+       - L4, L5: Jolly (Usale per aiutare chi è in ritardo).
     
     DOMANDA UTENTE: {prompt}
     
-    ISTRUZIONI:
-    - Se l'utente chiede un piano, proponi quali linee usare per quali ordini.
-    - Se devi assegnare ufficialmente una linea, usa SOLO questo JSON:
-      {{"comando": "assegna_linea", "linea_id": 1, "codice_ordine": "ORD-XX"}}
+    OUTPUT RICHIESTO:
+    Se devi agire, rispondi SOLAMENTE con una LISTA JSON di comandi.
+    Esempio: Dividere Ferrari su L2 e L3:
+    [
+      {{"comando": "assegna_linea", "linea_id": 2, "codice_ordine": "ORD-FERRARI"}},
+      {{"comando": "assegna_linea", "linea_id": 3, "codice_ordine": "ORD-FERRARI"}}
+    ]
+    
+    Se non devi agire, spiega il piano a parole.
     """
     
     with st.chat_message("assistant"):
-        with st.spinner("Calcolo ottimizzazione..."):
+        with st.spinner("Calcolo allocazione risorse..."):
             try:
                 response = model.generate_content(full_prompt)
                 risposta = response.text.strip()
                 
-                # Parsing JSON (Fix robusto)
+                # Parsing Intelligente (Cerca liste JSON o oggetti singoli)
                 json_exec = None
+                
+                # Caso Markdown
                 if "```json" in risposta:
                     s = risposta.find("```json") + 7
                     e = risposta.find("```", s)
                     json_exec = risposta[s:e].strip()
+                # Caso Lista JSON [...]
+                elif risposta.startswith("[") and risposta.endswith("]"):
+                    json_exec = risposta
+                # Caso Oggetto Singolo {...}
                 elif risposta.startswith("{") and risposta.endswith("}"):
                     json_exec = risposta
                 
                 if json_exec:
-                    esito = esegui_azione_ai(json_exec)
-                    st.success(esito)
+                    # Esegue tutte le azioni in un colpo solo
+                    esito = esegui_azioni_ai(json_exec)
+                    st.success(esito) # Mostra report completo
                     st.session_state.messages.append({"role": "assistant", "content": esito})
                     time.sleep(2)
                     st.rerun()
