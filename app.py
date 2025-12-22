@@ -21,7 +21,7 @@ st.set_page_config(page_title="MES Dashboard 6.1", page_icon="📊", layout="wid
 #
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel("models/gemini-2.0-flash")
+    model = genai.GenerativeModel("models/gemini-1.5-flash")
 except Exception:
     # L'app deve funzionare anche senza AI: mostro errore ma non blocco il MES.
     model = None
@@ -475,3 +475,4 @@ if st.session_state.page == "home":
     render_home()
 else:
     render_linea_detail(st.session_state.selected_linea_id)
+
