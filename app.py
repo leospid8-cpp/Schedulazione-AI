@@ -162,13 +162,31 @@ def voice_component():
     return components.html(html, height=120)
 
 
-def speak_in_browser(text: str):
+def enhance_tts_text(text: str) -> str:
+    if not text:
+        return text
+    t = text.strip()
+    t = t.replace("...", ". ")
+    t = t.replace(";", ". ")
+    t = t.replace("!", "! ")
+    t = t.replace("?", "? ")
+    t = t.replace(".", ". ")
+    t = t.replace(",", ", ")
+    t = " ".join(t.split())
+    return t
+
+
+def speak_in_browser(text: str, rate: float = 1.0, pitch: float = 1.0, volume: float = 1.0):
     if not text:
         return
+    safe_text = enhance_tts_text(text)
     html = f"""
     <script>
-      const msg = new SpeechSynthesisUtterance({json.dumps(text)});
+      const msg = new SpeechSynthesisUtterance({json.dumps(safe_text)});
       msg.lang = 'it-IT';
+      msg.rate = {rate};
+      msg.pitch = {pitch};
+      msg.volume = {volume};
       window.speechSynthesis.speak(msg);
     </script>
     """
@@ -402,12 +420,18 @@ def render_home():
                     st.write(msg["content"])
                     if msg["role"] == "assistant":
                         if st.button("🎧", key=f"tts_btn_{i}"):
-                            speak_in_browser(msg["content"])
+                            rate = st.session_state.get("voice_rate", 1.0)
+                            pitch = st.session_state.get("voice_pitch", 1.0)
+                            volume = st.session_state.get("voice_volume", 1.0)
+                            speak_in_browser(msg["content"], rate=rate, pitch=pitch, volume=volume)
             used_voice = False
             voice_text = ""
             tts_enabled = False
             with st.expander("Voce (beta)", expanded=False):
                 tts_enabled = st.checkbox("Leggi risposta ad alta voce", value=True, key="voice_tts")
+                rate = st.slider("Velocità voce", min_value=0.7, max_value=1.3, value=1.0, step=0.05, key="voice_rate")
+                pitch = st.slider("Tono voce", min_value=0.8, max_value=1.2, value=1.0, step=0.05, key="voice_pitch")
+                volume = st.slider("Volume voce", min_value=0.5, max_value=1.0, value=1.0, step=0.05, key="voice_volume")
                 voice_text = voice_component()
                 if not isinstance(voice_text, str):
                     voice_text = ""
@@ -462,14 +486,14 @@ ISTRUZIONI:
                                 st.success(report)
                                 st.session_state.messages.append({"role": "assistant", "content": report})
                                 if used_voice and tts_enabled:
-                                    speak_in_browser(report)
+                                    speak_in_browser(report, rate=rate, pitch=pitch, volume=volume)
                                 time.sleep(1)
                                 st.rerun()
                             else:
                                 st.write(answ)
                                 st.session_state.messages.append({"role": "assistant", "content": answ})
                                 if used_voice and tts_enabled:
-                                    speak_in_browser(answ)
+                                    speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume)
                         except Exception as e:
                             st.error(f"Errore AI: {e}")
 
