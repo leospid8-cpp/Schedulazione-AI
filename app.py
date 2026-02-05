@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 import altair as alt
+import streamlit.components.v1 as components
 
 from backend import DatabaseManager, LineaManager, OrdineManager
 
@@ -89,6 +90,89 @@ def esegui_azioni_ai(json_input: str) -> str:
         return "\n".join(log) if log else "Nessuna azione."
     except Exception as e:
         return f"Errore nel comando AI: {e}"
+
+
+def voice_component():
+    html = """
+    <div style="font-family: sans-serif; padding: 6px;">
+      <button id="startBtn">Start</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <span id="status" style="margin-left:8px; color:#666;">Ready</span>
+      <div id="result" style="margin-top:8px; font-weight:600;"></div>
+      <script>
+        const statusEl = document.getElementById('status');
+        const resultEl = document.getElementById('result');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          statusEl.textContent = 'SpeechRecognition not supported in this browser.';
+        } else {
+          const rec = new SpeechRecognition();
+          rec.lang = 'it-IT';
+          rec.interimResults = false;
+          rec.maxAlternatives = 1;
+
+          startBtn.onclick = () => {
+            rec.start();
+            statusEl.textContent = 'Listening...';
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+          };
+
+          stopBtn.onclick = () => {
+            rec.stop();
+            statusEl.textContent = 'Stopped.';
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+          };
+
+          function sendValue(val) {
+            if (window.Streamlit && window.Streamlit.setComponentValue) {
+              window.Streamlit.setComponentValue(val);
+            }
+            window.parent.postMessage(
+              { isStreamlitMessage: true, type: "streamlit:setComponentValue", value: val },
+              "*"
+            );
+          }
+
+          rec.onresult = (e) => {
+            const text = e.results[0][0].transcript;
+            resultEl.textContent = 'Text: ' + text;
+            statusEl.textContent = 'Done.';
+            sendValue(text);
+          };
+
+          rec.onerror = (e) => {
+            statusEl.textContent = 'Error: ' + e.error;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+          };
+
+          rec.onend = () => {
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+          };
+        }
+      </script>
+    </div>
+    """
+    return components.html(html, height=120, key="voice_component")
+
+
+def speak_in_browser(text: str):
+    if not text:
+        return
+    html = f"""
+    <script>
+      const msg = new SpeechSynthesisUtterance({json.dumps(text)});
+      msg.lang = 'it-IT';
+      window.speechSynthesis.speak(msg);
+    </script>
+    """
+    components.html(html, height=0)
 
 
 def build_range(range_key: str):
@@ -315,8 +399,20 @@ def render_home():
 
             for msg in st.session_state.messages:
                 st.chat_message(msg["role"]).write(msg["content"])
+            used_voice = False
+            voice_text = ""
+            tts_enabled = False
+            with st.expander("Voce (beta)", expanded=False):
+                tts_enabled = st.checkbox("Leggi risposta ad alta voce", value=True, key="voice_tts")
+                voice_text = voice_component()
+                if not isinstance(voice_text, str):
+                    voice_text = ""
+                if voice_text:
+                    used_voice = True
 
             prompt = st.chat_input("Es: 'Schedula gli ordini sulle linee migliori'")
+            if not prompt and used_voice:
+                prompt = voice_text
 
             if prompt:
                 st.chat_message("user").write(prompt)
@@ -361,11 +457,15 @@ ISTRUZIONI:
                                 report = esegui_azioni_ai(json_found)
                                 st.success(report)
                                 st.session_state.messages.append({"role": "assistant", "content": report})
+                                if used_voice and tts_enabled:
+                                    speak_in_browser(report)
                                 time.sleep(1)
                                 st.rerun()
                             else:
                                 st.write(answ)
                                 st.session_state.messages.append({"role": "assistant", "content": answ})
+                                if used_voice and tts_enabled:
+                                    speak_in_browser(answ)
                         except Exception as e:
                             st.error(f"Errore AI: {e}")
 
