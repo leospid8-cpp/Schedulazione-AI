@@ -20,12 +20,42 @@ st.set_page_config(page_title="MES Dashboard 6.1", page_icon="📊", layout="wid
 #
 # collegamento ai
 #
+def get_ai_keys():
+    keys = []
+    try:
+        key1 = st.secrets.get("GOOGLE_API_KEY")
+        if key1:
+            keys.append(key1)
+    except Exception:
+        pass
+    try:
+        key2 = st.secrets.get("GOOGLE_API_KEY_2")
+        if key2:
+            keys.append(key2)
+    except Exception:
+        pass
+    return keys
+
+
+def make_model(api_key: str):
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("models/gemini-flash-latest")
+
+
+def is_quota_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return ("quota" in msg) or ("resource_exhausted" in msg) or ("429" in msg)
+
+
 try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel("models/gemini-flash-latest")
+    _ai_keys = get_ai_keys()
+    model = make_model(_ai_keys[0]) if _ai_keys else None
+    _ai_key_index = 0
 except Exception:
     # L'app deve funzionare anche senza AI: mostro errore ma non blocco il MES.
     model = None
+    _ai_keys = []
+    _ai_key_index = 0
     st.sidebar.warning("AI non configurata (manca GOOGLE_API_KEY). La dashboard MES funziona lo stesso.")
 
 
@@ -515,7 +545,15 @@ ISTRUZIONI:
                 with st.chat_message("assistant"):
                     with st.spinner("Analisi..."):
                         try:
-                            response = model.generate_content(full_prompt)
+                            try:
+                                response = model.generate_content(full_prompt)
+                            except Exception as e:
+                                if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
+                                    _ai_key_index += 1
+                                    model = make_model(_ai_keys[_ai_key_index])
+                                    response = model.generate_content(full_prompt)
+                                else:
+                                    raise
                             answ = response.text.strip()
 
                             json_found = None
