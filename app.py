@@ -98,12 +98,14 @@ def voice_component():
       <button id="startBtn">Start</button>
       <button id="stopBtn" disabled>Stop</button>
       <span id="status" style="margin-left:8px; color:#666;">Ready</span>
+      <select id="voiceSelect" style="margin-left:8px;"></select>
       <div id="result" style="margin-top:8px; font-weight:600;"></div>
       <script>
         const statusEl = document.getElementById('status');
         const resultEl = document.getElementById('result');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const voiceSelect = document.getElementById('voiceSelect');
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -142,7 +144,7 @@ def voice_component():
             const text = e.results[0][0].transcript;
             resultEl.textContent = 'Text: ' + text;
             statusEl.textContent = 'Done.';
-            sendValue(text);
+            sendValue({ text: text, voice: voiceSelect.value });
           };
 
           rec.onerror = (e) => {
@@ -156,6 +158,29 @@ def voice_component():
             stopBtn.disabled = true;
           };
         }
+
+        function listVoices() {
+          const voices = window.speechSynthesis.getVoices();
+          voiceSelect.innerHTML = '';
+          voices.forEach((v, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.textContent = `${v.name} (${v.lang})`;
+            voiceSelect.appendChild(opt);
+          });
+          if (voices.length > 0) {
+            sendValue({ voice: voiceSelect.value, text: '' });
+          }
+        }
+
+        if (window.speechSynthesis) {
+          listVoices();
+          window.speechSynthesis.onvoiceschanged = listVoices;
+        }
+
+        voiceSelect.onchange = () => {
+          sendValue({ voice: voiceSelect.value, text: '' });
+        };
       </script>
     </div>
     """
@@ -176,7 +201,7 @@ def enhance_tts_text(text: str) -> str:
     return t
 
 
-def speak_in_browser(text: str, rate: float = 1.0, pitch: float = 1.0, volume: float = 1.0):
+def speak_in_browser(text: str, rate: float = 1.0, pitch: float = 1.0, volume: float = 1.0, voice_idx: int | None = None):
     if not text:
         return
     safe_text = enhance_tts_text(text)
@@ -187,6 +212,11 @@ def speak_in_browser(text: str, rate: float = 1.0, pitch: float = 1.0, volume: f
       msg.rate = {rate};
       msg.pitch = {pitch};
       msg.volume = {volume};
+      const voices = window.speechSynthesis.getVoices();
+      const idx = {voice_idx if voice_idx is not None else 'null'};
+      if (voices && voices.length && idx !== null && voices[idx]) {{
+        msg.voice = voices[idx];
+      }}
       window.speechSynthesis.speak(msg);
     </script>
     """
@@ -419,22 +449,37 @@ def render_home():
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
                     if msg["role"] == "assistant":
-                        if st.button("🎧", key=f"tts_btn_{i}"):
+                        if st.button("\U0001F3A7", key=f"tts_btn_{i}"):
                             rate = st.session_state.get("voice_rate", 1.0)
                             pitch = st.session_state.get("voice_pitch", 1.0)
                             volume = st.session_state.get("voice_volume", 1.0)
-                            speak_in_browser(msg["content"], rate=rate, pitch=pitch, volume=volume)
+                            voice_idx = st.session_state.get("voice_idx")
+                            speak_in_browser(msg["content"], rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
             used_voice = False
             voice_text = ""
             tts_enabled = False
             with st.expander("Voce (beta)", expanded=False):
                 tts_enabled = st.checkbox("Leggi risposta ad alta voce", value=True, key="voice_tts")
-                rate = st.slider("Velocità voce", min_value=0.7, max_value=1.3, value=1.0, step=0.05, key="voice_rate")
+                rate = st.slider("Velocita voce", min_value=0.7, max_value=1.3, value=1.0, step=0.05, key="voice_rate")
                 pitch = st.slider("Tono voce", min_value=0.8, max_value=1.2, value=1.0, step=0.05, key="voice_pitch")
                 volume = st.slider("Volume voce", min_value=0.5, max_value=1.0, value=1.0, step=0.05, key="voice_volume")
-                voice_text = voice_component()
-                if not isinstance(voice_text, str):
-                    voice_text = ""
+                voice_payload = voice_component()
+                voice_text = ""
+                voice_idx = None
+                if isinstance(voice_payload, dict):
+                    if "voice" in voice_payload:
+                        try:
+                            voice_idx = int(voice_payload["voice"])
+                        except Exception:
+                            voice_idx = None
+                    if "text" in voice_payload and isinstance(voice_payload["text"], str):
+                        voice_text = voice_payload["text"]
+                elif isinstance(voice_payload, str):
+                    voice_text = voice_payload
+                if voice_idx is not None:
+                    st.session_state.voice_idx = voice_idx
+                elif "voice_idx" in st.session_state:
+                    pass
                 if voice_text:
                     used_voice = True
 
@@ -486,14 +531,14 @@ ISTRUZIONI:
                                 st.success(report)
                                 st.session_state.messages.append({"role": "assistant", "content": report})
                                 if used_voice and tts_enabled:
-                                    speak_in_browser(report, rate=rate, pitch=pitch, volume=volume)
+                                    speak_in_browser(report, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
                                 time.sleep(1)
                                 st.rerun()
                             else:
                                 st.write(answ)
                                 st.session_state.messages.append({"role": "assistant", "content": answ})
                                 if used_voice and tts_enabled:
-                                    speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume)
+                                    speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
                         except Exception as e:
                             st.error(f"Errore AI: {e}")
 
@@ -603,6 +648,7 @@ if st.session_state.page == "home":
     render_home()
 else:
     render_linea_detail(st.session_state.selected_linea_id)
+
 
 
 
