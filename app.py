@@ -351,6 +351,7 @@ def grafico_produzione(df: pd.DataFrame):
 # pagine
 #
 def render_home():
+    global model, _ai_key_index
     st.title("📊 Controllo Produzione Giornaliera")
 
     # totali
