@@ -397,8 +397,12 @@ def render_home():
             if "messages" not in st.session_state:
                 st.session_state.messages = [{"role": "assistant", "content": "Ciao! Gestisco la schedulazione. Chiedimi di assegnare gli ordini."}]
 
-            for msg in st.session_state.messages:
-                st.chat_message(msg["role"]).write(msg["content"])
+            for i, msg in enumerate(st.session_state.messages):
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+                    if msg["role"] == "assistant":
+                        if st.button("🎧", key=f"tts_btn_{i}"):
+                            speak_in_browser(msg["content"])
             used_voice = False
             voice_text = ""
             tts_enabled = False
