@@ -159,7 +159,7 @@ def voice_component():
       </script>
     </div>
     """
-    return components.html(html, height=120, key="voice_component")
+    return components.html(html, height=120)
 
 
 def speak_in_browser(text: str):
