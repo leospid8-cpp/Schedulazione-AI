@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import google.generativeai as genai
 import json
 import time
@@ -16,6 +16,118 @@ from backend import DatabaseManager, LineaManager, OrdineManager
 #
 st.set_page_config(page_title="MES Dashboard 6.1", page_icon="📊", layout="wide")
 
+def apply_modern_theme():
+    st.markdown(
+        """
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
+
+          :root {
+            --app-bg-1: #f6fbff;
+            --app-bg-2: #eef7f7;
+            --app-bg-3: #fbf8ef;
+            --ink-main: #0f172a;
+            --ink-soft: #334155;
+            --card-bg: rgba(255, 255, 255, 0.78);
+            --card-border: rgba(148, 163, 184, 0.28);
+            --accent: #0f766e;
+            --accent-2: #0ea5a4;
+          }
+
+          .stApp {
+            font-family: "Manrope", "Segoe UI", sans-serif;
+            color: var(--ink-main);
+            background:
+              radial-gradient(1200px 700px at -10% -15%, #dff4ff 0%, transparent 65%),
+              radial-gradient(1000px 700px at 110% -10%, #e5f8ee 0%, transparent 60%),
+              linear-gradient(135deg, var(--app-bg-1), var(--app-bg-2) 45%, var(--app-bg-3));
+          }
+
+          h1, h2, h3, h4 {
+            font-family: "Space Grotesk", "Manrope", sans-serif;
+            letter-spacing: -0.02em;
+            color: var(--ink-main);
+          }
+
+          [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(247,252,255,0.9));
+            backdrop-filter: blur(6px);
+            border-right: 1px solid rgba(148, 163, 184, 0.22);
+          }
+
+          [data-testid="stMetric"] {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 10px 12px;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+            transition: transform .18s ease, box-shadow .18s ease;
+          }
+
+          [data-testid="stMetric"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 28px rgba(15, 23, 42, 0.10);
+          }
+
+          [data-testid="stChatMessage"] {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+          }
+
+          [data-testid="stExpander"] {
+            background: rgba(255, 255, 255, 0.68);
+            border-radius: 14px;
+            border: 1px solid var(--card-border);
+          }
+
+          [data-testid="stButton"] button {
+            border-radius: 10px;
+            border: 1px solid rgba(15, 118, 110, 0.28);
+            color: #0f172a;
+            background: linear-gradient(180deg, #ffffff, #f3fffd);
+            box-shadow: 0 4px 14px rgba(15, 118, 110, 0.10);
+            transition: all .2s ease;
+          }
+
+          [data-testid="stButton"] button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(15, 118, 110, 0.45);
+            box-shadow: 0 8px 20px rgba(15, 118, 110, 0.16);
+          }
+
+          .stProgress > div > div > div {
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+          }
+
+          [data-testid="stDataFrame"] {
+            background: rgba(255, 255, 255, 0.82);
+            border-radius: 14px;
+            border: 1px solid var(--card-border);
+          }
+
+          [data-testid="stMarkdownContainer"] p,
+          [data-testid="stMarkdownContainer"] li,
+          [data-testid="stCaptionContainer"] {
+            color: var(--ink-soft);
+          }
+
+          [data-testid="stAlert"] {
+            border-radius: 12px;
+          }
+
+          .block-container {
+            padding-top: 1.35rem;
+            padding-bottom: 2.2rem;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+apply_modern_theme()
 
 #
 # collegamento ai
@@ -104,18 +216,18 @@ def esegui_azioni_ai(json_input: str) -> str:
                 lid = int(azione.get("linea_id"))
                 cod = str(azione.get("codice_ordine"))
                 st.session_state.linea_mgr.assegna_commessa(lid, cod)
-                log.append(f"✅ Linea {lid} -> Assegnata a {cod}")
+                log.append(f"âœ… Linea {lid} -> Assegnata a {cod}")
 
             elif cmd == "ferma_linea":
                 lid = int(azione.get("linea_id"))
                 motivo = str(azione.get("motivo", "Manuale"))
                 st.session_state.linea_mgr.set_stato(lid, "Ferma", motivo)
-                log.append(f"⛔ Linea {lid} STOP ({motivo})")
+                log.append(f"â›” Linea {lid} STOP ({motivo})")
 
             elif cmd == "avvia_linea":
                 lid = int(azione.get("linea_id"))
                 st.session_state.linea_mgr.set_stato(lid, "Attiva", "")
-                log.append(f"▶️ Linea {lid} START")
+                log.append(f"â–¶ï¸ Linea {lid} START")
 
         return "\n".join(log) if log else "Nessuna azione."
     except Exception as e:
@@ -322,7 +434,11 @@ def grafico_produzione(df: pd.DataFrame):
         .encode(
             x=alt.X("giorno:T", title="Giorno"),
             y=alt.Y("qta:Q", title="Pezzi"),
-            color=alt.Color("tipo:N", title="Tipo"),
+            color=alt.Color(
+                "tipo:N",
+                title="Tipo",
+                scale=alt.Scale(domain=["ok", "ko"], range=["#0f766e", "#b91c1c"]),
+            ),
             tooltip=[
                 alt.Tooltip("giorno:T", title="Giorno"),
                 alt.Tooltip("tipo:N", title="Tipo"),
@@ -333,7 +449,7 @@ def grafico_produzione(df: pd.DataFrame):
 
     line = (
         alt.Chart(df_chart)
-        .mark_line()
+        .mark_line(color="#0284c7", strokeWidth=3)
         .encode(
             x=alt.X("giorno:T"),
             y=alt.Y("target_ok:Q", title=""),
@@ -352,7 +468,7 @@ def grafico_produzione(df: pd.DataFrame):
 #
 def render_home():
     global model, _ai_key_index
-    st.title("📊 Controllo Produzione Giornaliera")
+    st.title("ðŸ“Š Controllo Produzione Giornaliera")
 
     # totali
     tot_prodotti = st.session_state.linea_mgr.get_totale_produzione()
@@ -363,10 +479,10 @@ def render_home():
 
     # metriche
     col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Pezzi Fatti Oggi", tot_prodotti)
-    col2.metric("🎯 Obiettivo Totale", tot_target)
+    col1.metric("ðŸ“¦ Pezzi Fatti Oggi", tot_prodotti)
+    col2.metric("ðŸŽ¯ Obiettivo Totale", tot_target)
     mancanti = max(tot_target - tot_prodotti, 0)
-    col3.metric("📉 Pezzi Mancanti", mancanti)
+    col3.metric("ðŸ“‰ Pezzi Mancanti", mancanti)
 
     # avanzamento
     if tot_target > 0:
@@ -379,17 +495,17 @@ def render_home():
 
     # Sidebar
     with st.sidebar:
-        st.header("🎛️ Operatore")
+        st.header("ðŸŽ›ï¸ Operatore")
 
         # reset
-        with st.expander("🛠️ Reset Turno"):
-            if st.button("⚠️ NUOVO TURNO (Cancella Ordini + Reset Contatori)"):
+        with st.expander("ðŸ› ï¸ Reset Turno"):
+            if st.button("âš ï¸ NUOVO TURNO (Cancella Ordini + Reset Contatori)"):
                 st.session_state.ordine_mgr.reset_giornata()
                 st.warning("Turno resettato.")
                 st.rerun()
 
         # creazione ordini
-        with st.expander("📄 Nuovo Ordine", expanded=True):
+        with st.expander("ðŸ“„ Nuovo Ordine", expanded=True):
             modelli = ["Porsche", "Ferrari", "Audi", "Mercedes"]
             mod = st.selectbox("Modello", modelli)
             cod = st.text_input("Codice", "ORD-01")
@@ -400,20 +516,20 @@ def render_home():
                 st.rerun()
 
         st.divider()
-        st.header("🏭 Linee produttive")
+        st.header("ðŸ­ Linee produttive")
 
         linee = st.session_state.linea_mgr.get_status()
         st.caption("Clicca su una linea per aprire la pagina dedicata.")
         for l in linee:
-            color = "🟢" if l["stato"] == "Attiva" else "🔴"
+            color = "ðŸŸ¢" if l["stato"] == "Attiva" else "ðŸ”´"
             if st.button(f"{color} {l['nome']}", key=f"nav_{l['id']}"):
                 goto_linea(l["id"])
 
         st.divider()
-        st.subheader("⚡ Controlli rapidi")
+        st.subheader("âš¡ Controlli rapidi")
 
         for l in linee:
-            color = "🟢" if l["stato"] == "Attiva" else "🔴"
+            color = "ðŸŸ¢" if l["stato"] == "Attiva" else "ðŸ”´"
             titolo = f"{color} {l['nome']}"
 
             with st.expander(titolo):
@@ -425,12 +541,12 @@ def render_home():
                     target_ord = next((o["quantita"] for o in ordini_raw if o["codice"] == ord_code), 0)
                     fatti_totali = progress_dict.get(ord_code, 0)
 
-                    st.info(f"🔨 Lavora su: **{ord_code}**")
+                    st.info(f"ðŸ”¨ Lavora su: **{ord_code}**")
                     perc = int((fatti_totali / target_ord * 100)) if target_ord > 0 else 0
                     st.write(f"Avanzamento Ordine: **{fatti_totali}** / {target_ord} ({perc}%)")
                     st.progress(min(perc / 100, 1.0))
                 else:
-                    st.warning("💤 In attesa")
+                    st.warning("ðŸ’¤ In attesa")
 
                 # contatori linea
                 c1, c2 = st.columns(2)
@@ -461,7 +577,7 @@ def render_home():
 
     # CHAT
     with col_chat:
-        st.subheader("🤖 AI Factory Manager")
+        st.subheader("ðŸ¤– AI Factory Manager")
 
         if model is None:
             st.info("AI non disponibile: configura GOOGLE_API_KEY in secrets per usare il chatbot.")
@@ -476,16 +592,18 @@ def render_home():
             if "messages" not in st.session_state:
                 st.session_state.messages = [{"role": "assistant", "content": "Ciao! Gestisco la schedulazione. Chiedimi di assegnare gli ordini."}]
 
-            for i, msg in enumerate(st.session_state.messages):
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-                    if msg["role"] == "assistant":
-                        if st.button("\U0001F3A7", key=f"tts_btn_{i}"):
-                            rate = st.session_state.get("voice_rate", 1.0)
-                            pitch = st.session_state.get("voice_pitch", 1.0)
-                            volume = st.session_state.get("voice_volume", 1.0)
-                            voice_idx = st.session_state.get("voice_idx")
-                            speak_in_browser(msg["content"], rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
+            chat_history = st.container(height=460, border=False)
+            with chat_history:
+                for i, msg in enumerate(st.session_state.messages):
+                    with st.chat_message(msg["role"]):
+                        st.write(msg["content"])
+                        if msg["role"] == "assistant":
+                            if st.button("\U0001F3A7", key=f"tts_btn_{i}"):
+                                rate = st.session_state.get("voice_rate", 1.0)
+                                pitch = st.session_state.get("voice_pitch", 1.0)
+                                volume = st.session_state.get("voice_volume", 1.0)
+                                voice_idx = st.session_state.get("voice_idx")
+                                speak_in_browser(msg["content"], rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
             used_voice = False
             voice_text = ""
             tts_enabled = False
@@ -519,7 +637,8 @@ def render_home():
                 prompt = voice_text
 
             if prompt:
-                st.chat_message("user").write(prompt)
+                with chat_history:
+                    st.chat_message("user").write(prompt)
                 st.session_state.messages.append({"role": "user", "content": prompt})
 
                 full_prompt = f"""
@@ -543,47 +662,48 @@ ISTRUZIONI:
    Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id).
                 """
 
-                with st.chat_message("assistant"):
-                    with st.spinner("Analisi..."):
-                        try:
+                with chat_history:
+                    with st.chat_message("assistant"):
+                        with st.spinner("Analisi..."):
                             try:
-                                response = model.generate_content(full_prompt)
-                            except Exception as e:
-                                if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
-                                    _ai_key_index += 1
-                                    model = make_model(_ai_keys[_ai_key_index])
+                                try:
                                     response = model.generate_content(full_prompt)
+                                except Exception as e:
+                                    if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
+                                        _ai_key_index += 1
+                                        model = make_model(_ai_keys[_ai_key_index])
+                                        response = model.generate_content(full_prompt)
+                                    else:
+                                        raise
+                                answ = response.text.strip()
+
+                                json_found = None
+                                if "```json" in answ:
+                                    s = answ.find("```json") + 7
+                                    e = answ.find("```", s)
+                                    json_found = answ[s:e].strip()
+                                elif answ.startswith("[") and answ.endswith("]"):
+                                    json_found = answ
+
+                                if json_found:
+                                    report = esegui_azioni_ai(json_found)
+                                    st.success(report)
+                                    st.session_state.messages.append({"role": "assistant", "content": report})
+                                    if used_voice and tts_enabled:
+                                        speak_in_browser(report, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
+                                    time.sleep(1)
+                                    st.rerun()
                                 else:
-                                    raise
-                            answ = response.text.strip()
-
-                            json_found = None
-                            if "```json" in answ:
-                                s = answ.find("```json") + 7
-                                e = answ.find("```", s)
-                                json_found = answ[s:e].strip()
-                            elif answ.startswith("[") and answ.endswith("]"):
-                                json_found = answ
-
-                            if json_found:
-                                report = esegui_azioni_ai(json_found)
-                                st.success(report)
-                                st.session_state.messages.append({"role": "assistant", "content": report})
-                                if used_voice and tts_enabled:
-                                    speak_in_browser(report, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.write(answ)
-                                st.session_state.messages.append({"role": "assistant", "content": answ})
-                                if used_voice and tts_enabled:
-                                    speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
-                        except Exception as e:
-                            st.error(f"Errore AI: {e}")
+                                    st.write(answ)
+                                    st.session_state.messages.append({"role": "assistant", "content": answ})
+                                    if used_voice and tts_enabled:
+                                        speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
+                            except Exception as e:
+                                st.error(f"Errore AI: {e}")
 
     # KPI ORDINI
     with col_kpi:
-        st.info("📋 **Stato Avanzamento Ordini**")
+        st.info("ðŸ“‹ **Stato Avanzamento Ordini**")
         if ordini_raw:
             for o in ordini_raw:
                 codice = o["codice"]
@@ -603,24 +723,24 @@ def render_linea_detail(linea_id: int):
     linea = st.session_state.linea_mgr.get_linea(linea_id)
     if not linea:
         st.error("Linea non trovata.")
-        if st.button("⬅️ Torna alla Home"):
+        if st.button("â¬…ï¸ Torna alla Home"):
             goto_home()
         return
 
     # Header + back
     top_left, top_right = st.columns([1, 3])
     with top_left:
-        if st.button("⬅️ Home"):
+        if st.button("â¬…ï¸ Home"):
             goto_home()
     with top_right:
-        st.title(f"📈 Dettaglio {linea['nome']}")
+        st.title(f"ðŸ“ˆ Dettaglio {linea['nome']}")
 
     st.caption(f"Vincoli: {linea['vincoli']}")
 
     # stato + ordine assegnato
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Stato", linea["stato"])
-    c2.metric("Ordine assegnato", linea["target_assegnato"] if linea["target_assegnato"] else "—")
+    c2.metric("Ordine assegnato", linea["target_assegnato"] if linea["target_assegnato"] else "â€”")
     c3.metric("Buoni (contatore live)", linea["pezzi_fatti"])
     c4.metric("Scarti (contatore live)", linea["pezzi_scarti"])
 
@@ -636,7 +756,7 @@ def render_linea_detail(linea_id: int):
             start_day, end_day = d1, d2
         else:
             start_day, end_day = build_range(range_key)
-            st.write(f"Intervallo: **{start_day} → {end_day}**")
+            st.write(f"Intervallo: **{start_day} â†’ {end_day}**")
 
     df = produzione_df(linea_id, start_day, end_day)
 
@@ -654,7 +774,7 @@ def render_linea_detail(linea_id: int):
     if total_target > 0:
         k4.metric("Target nel range", total_target, delta=f"{total_ok - total_target}")
     else:
-        k4.metric("Target nel range", "—")
+        k4.metric("Target nel range", "â€”")
 
     st.subheader("Produzione vs Obiettivo")
     st.altair_chart(grafico_produzione(df), use_container_width=True)
@@ -662,7 +782,7 @@ def render_linea_detail(linea_id: int):
     st.divider()
 
     # Imposta obiettivo
-    st.subheader("🎯 Imposta obiettivo giornaliero (opzionale)")
+    st.subheader("ðŸŽ¯ Imposta obiettivo giornaliero (opzionale)")
     st.caption("Serve per il confronto nel grafico. Se non lo imposti, l'obiettivo resta 0.")
     col_t1, col_t2 = st.columns([1, 2])
     with col_t1:
@@ -676,7 +796,7 @@ def render_linea_detail(linea_id: int):
     st.divider()
 
     # Tabella dettaglio
-    st.subheader("📅 Dettaglio giornaliero")
+    st.subheader("ðŸ“… Dettaglio giornaliero")
     st.dataframe(df, use_container_width=True)
 
 
@@ -687,6 +807,7 @@ if st.session_state.page == "home":
     render_home()
 else:
     render_linea_detail(st.session_state.selected_linea_id)
+
 
 
 
