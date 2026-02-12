@@ -519,7 +519,6 @@ def render_home():
                 prompt = voice_text
 
             if prompt:
-                st.chat_message("user").write(prompt)
                 st.session_state.messages.append({"role": "user", "content": prompt})
 
                 full_prompt = f"""
@@ -543,43 +542,41 @@ ISTRUZIONI:
    Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id).
                 """
 
-                with st.chat_message("assistant"):
-                    with st.spinner("Analisi..."):
+                with st.spinner("Analisi..."):
+                    try:
                         try:
-                            try:
-                                response = model.generate_content(full_prompt)
-                            except Exception as e:
-                                if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
-                                    _ai_key_index += 1
-                                    model = make_model(_ai_keys[_ai_key_index])
-                                    response = model.generate_content(full_prompt)
-                                else:
-                                    raise
-                            answ = response.text.strip()
-
-                            json_found = None
-                            if "```json" in answ:
-                                s = answ.find("```json") + 7
-                                e = answ.find("```", s)
-                                json_found = answ[s:e].strip()
-                            elif answ.startswith("[") and answ.endswith("]"):
-                                json_found = answ
-
-                            if json_found:
-                                report = esegui_azioni_ai(json_found)
-                                st.success(report)
-                                st.session_state.messages.append({"role": "assistant", "content": report})
-                                if used_voice and tts_enabled:
-                                    speak_in_browser(report, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.write(answ)
-                                st.session_state.messages.append({"role": "assistant", "content": answ})
-                                if used_voice and tts_enabled:
-                                    speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
+                            response = model.generate_content(full_prompt)
                         except Exception as e:
-                            st.error(f"Errore AI: {e}")
+                            if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
+                                _ai_key_index += 1
+                                model = make_model(_ai_keys[_ai_key_index])
+                                response = model.generate_content(full_prompt)
+                            else:
+                                raise
+                        answ = response.text.strip()
+
+                        json_found = None
+                        if "```json" in answ:
+                            s = answ.find("```json") + 7
+                            e = answ.find("```", s)
+                            json_found = answ[s:e].strip()
+                        elif answ.startswith("[") and answ.endswith("]"):
+                            json_found = answ
+
+                        if json_found:
+                            report = esegui_azioni_ai(json_found)
+                            st.session_state.messages.append({"role": "assistant", "content": report})
+                            if used_voice and tts_enabled:
+                                speak_in_browser(report, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
+                        else:
+                            st.session_state.messages.append({"role": "assistant", "content": answ})
+                            if used_voice and tts_enabled:
+                                speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
+                        time.sleep(0.2)
+                        st.rerun()
+                    except Exception as e:
+                        st.session_state.messages.append({"role": "assistant", "content": f"Errore AI: {e}"})
+                        st.rerun()
 
     # KPI ORDINI
     with col_kpi:
