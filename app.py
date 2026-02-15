@@ -660,24 +660,37 @@ div.stButton > button:hover {
 }
 
 /* Tooltip help (Home/SCADA/Grafici/Planner) leggibile su sfondi scuri */
-[role="tooltip"],
-[data-baseweb="tooltip"],
-[data-baseweb="popover"] [role="tooltip"],
-[data-testid="stTooltipContent"] {
+.stApp [role="tooltip"],
+.stApp [data-baseweb="tooltip"],
+.stApp [data-baseweb="popover"] [role="tooltip"],
+.stApp [data-testid="stTooltipContent"] {
   background: #12233c !important;
-  color: #ffffff !important;
   border: 1px solid #2f4f78 !important;
   border-radius: 10px !important;
   box-shadow: 0 10px 24px rgba(20, 36, 58, 0.22) !important;
+  opacity: 1 !important;
 }
 
-[role="tooltip"] *,
-[data-baseweb="tooltip"] *,
-[data-baseweb="popover"] [role="tooltip"] *,
-[data-testid="stTooltipContent"] * {
+.stApp [role="tooltip"],
+.stApp [role="tooltip"] div,
+.stApp [role="tooltip"] p,
+.stApp [role="tooltip"] span,
+.stApp [role="tooltip"] small,
+.stApp [data-baseweb="tooltip"],
+.stApp [data-baseweb="tooltip"] div,
+.stApp [data-baseweb="tooltip"] p,
+.stApp [data-baseweb="tooltip"] span,
+.stApp [data-baseweb="popover"] [role="tooltip"],
+.stApp [data-baseweb="popover"] [role="tooltip"] div,
+.stApp [data-baseweb="popover"] [role="tooltip"] p,
+.stApp [data-baseweb="popover"] [role="tooltip"] span,
+.stApp [data-testid="stTooltipContent"],
+.stApp [data-testid="stTooltipContent"] * {
   color: #ffffff !important;
-  font-weight: 600 !important;
   fill: #ffffff !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.32) !important;
 }
 
 [class*="st-key-scada_card_"] {
