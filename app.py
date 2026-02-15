@@ -480,12 +480,16 @@ html, body, [class*="css"] {
 }
 
 [data-testid="stHeader"]::before {
-  content: "Dashboard";
+  content: "📊 Dashboard";
   color: #f1f6ff;
-  font-weight: 700;
-  font-size: 1.02rem;
+  font-weight: 800;
+  font-size: 1.42rem;
   margin-left: 14px;
   letter-spacing: 0.01em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .card-kpi {
