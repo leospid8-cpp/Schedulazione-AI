@@ -582,17 +582,15 @@ div[data-testid="stProgressBar"] > div > div {
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
-  font-size: 1.58rem !important;
+  font-size: 1rem !important;
   line-height: 1 !important;
-  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif !important;
   font-weight: 700 !important;
   box-shadow: none !important;
   transition: all 0.2s ease;
 }
 
-.st-key-bottom_dock [class*="st-key-dock_btn_"] button p {
-  margin: 0 !important;
-  font-size: 1.58rem !important;
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button span[data-testid="stIconMaterial"] {
+  font-size: 1.52rem !important;
   line-height: 1 !important;
 }
 
@@ -621,19 +619,19 @@ def render_bottom_nav():
     with st.container(key="bottom_dock"):
         c1, c2, c3, c4 = st.columns(4, gap="small")
         with c1:
-            if st.button("🏠", key="dock_btn_home", use_container_width=True, help="Home"):
+            if st.button("", key="dock_btn_home", icon=":material/home:", help="Home"):
                 st.session_state.app_section = "home"
                 st.rerun()
         with c2:
-            if st.button("🏭", key="dock_btn_scada", use_container_width=True, help="SCADA"):
+            if st.button("", key="dock_btn_scada", icon=":material/precision_manufacturing:", help="SCADA"):
                 st.session_state.app_section = "scada"
                 st.rerun()
         with c3:
-            if st.button("📈", key="dock_btn_graphs", use_container_width=True, help="Grafici"):
+            if st.button("", key="dock_btn_graphs", icon=":material/query_stats:", help="Grafici"):
                 st.session_state.app_section = "graphs"
                 st.rerun()
         with c4:
-            if st.button("🗓️", key="dock_btn_planner", use_container_width=True, help="Planner"):
+            if st.button("", key="dock_btn_planner", icon=":material/calendar_month:", help="Planner"):
                 st.session_state.app_section = "planner"
                 st.rerun()
 
