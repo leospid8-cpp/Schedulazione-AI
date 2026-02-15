@@ -130,3 +130,9 @@ alter table public.sched_tasks
 
 alter table public.sched_tasks
   add column if not exists end_shift_min numeric(12, 2);
+
+alter table public.sched_tasks
+  add column if not exists start_at timestamptz;
+
+alter table public.sched_tasks
+  add column if not exists end_at timestamptz;

@@ -1,7 +1,10 @@
 ﻿from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 import math
 from typing import Any, Dict, List, Optional, Tuple
+
+
+EXCEL_BASE = date(1899, 12, 30)
 
 
 @dataclass
@@ -34,6 +37,8 @@ class Task:
     end_day: int
     start_shift_min: float
     end_shift_min: float
+    start_at: str
+    end_at: str
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -48,10 +53,14 @@ def _excel_serial_from_iso(iso_date: Optional[str]) -> Optional[float]:
         return None
     try:
         y, m, d = [int(x) for x in str(iso_date).split("-")]
-        base = date(1899, 12, 30).toordinal()
-        return float(date(y, m, d).toordinal() - base)
+        return float(date(y, m, d).toordinal() - EXCEL_BASE.toordinal())
     except Exception:
         return None
+
+
+def _today_excel_serial(now_dt: Optional[datetime] = None) -> int:
+    now_dt = now_dt or datetime.now()
+    return int(now_dt.date().toordinal() - EXCEL_BASE.toordinal())
 
 
 def _calendar_config(dataset: Dict[str, Any]) -> Dict[str, float]:
@@ -59,57 +68,78 @@ def _calendar_config(dataset: Dict[str, Any]) -> Dict[str, float]:
     shift_minutes = _safe_float(raw.get("shift_minutes"), 480.0)
     day_minutes = _safe_float(raw.get("day_minutes"), 1440.0)
     shift_start_min = _safe_float(raw.get("shift_start_min"), 0.0)
+    anchor_now = bool(raw.get("anchor_now", True))
 
     if shift_minutes <= 0:
         shift_minutes = 480.0
     if day_minutes < shift_minutes:
         day_minutes = max(shift_minutes, 1440.0)
-    if shift_start_min < 0:
-        shift_start_min = 0.0
-    if shift_start_min >= day_minutes:
+    if shift_start_min < 0 or shift_start_min >= day_minutes:
         shift_start_min = 0.0
 
-    return {
+    cfg = {
         "shift_minutes": shift_minutes,
         "day_minutes": day_minutes,
         "shift_start_min": shift_start_min,
+        "anchor_now": anchor_now,
+    }
+
+    now_dt = datetime.now()
+    today_serial = _today_excel_serial(now_dt)
+
+    minute_of_day = (now_dt.hour * 60.0) + now_dt.minute + (now_dt.second / 60.0)
+    shift_start = shift_start_min
+    shift_end = shift_start + shift_minutes
+    if minute_of_day <= shift_start:
+        in_shift = 0.0
+    elif minute_of_day >= shift_end:
+        in_shift = shift_minutes
+    else:
+        in_shift = minute_of_day - shift_start
+
+    anchor_work_abs = (today_serial * shift_minutes) + (in_shift if anchor_now else 0.0)
+    anchor_cal_abs = (today_serial * day_minutes) + shift_start + (in_shift if anchor_now else 0.0)
+
+    cfg["anchor_day_serial"] = float(today_serial)
+    cfg["anchor_work_abs"] = float(anchor_work_abs)
+    cfg["anchor_cal_abs"] = float(anchor_cal_abs)
+    return cfg
+
+
+def _work_abs_to_parts(work_abs: float, cfg: Dict[str, float]) -> Dict[str, Any]:
+    shift_minutes = cfg["shift_minutes"]
+    day_minutes = cfg["day_minutes"]
+    shift_start = cfg["shift_start_min"]
+
+    w = max(0.0, float(work_abs))
+    day_serial = int(w // shift_minutes)
+    in_shift = w - (day_serial * shift_minutes)
+    cal_abs = (day_serial * day_minutes) + shift_start + in_shift
+
+    dt = datetime.combine(EXCEL_BASE + timedelta(days=day_serial), datetime.min.time()) + timedelta(minutes=shift_start + in_shift)
+    rel_day = int(day_serial - cfg["anchor_day_serial"] + 1)
+
+    return {
+        "day_serial": day_serial,
+        "relative_day": rel_day,
+        "shift_min": in_shift,
+        "calendar_abs_min": cal_abs,
+        "at": dt,
     }
 
 
-def _work_to_parts(work_min: float, cfg: Dict[str, float]) -> Tuple[int, float, float]:
+def _compute_due_context(dataset: Dict[str, Any], cfg: Dict[str, float]) -> Dict[str, float]:
     shift_minutes = cfg["shift_minutes"]
-    day_minutes = cfg["day_minutes"]
-    shift_start_min = cfg["shift_start_min"]
-
-    w = max(0.0, float(work_min))
-    day_idx = int(w // shift_minutes)
-    in_shift = w - (day_idx * shift_minutes)
-    calendar_min = (day_idx * day_minutes) + shift_start_min + in_shift
-    return day_idx + 1, in_shift, calendar_min
-
-
-def _compute_due_context(dataset: Dict[str, Any], calendar_cfg: Dict[str, float]) -> Tuple[float, Dict[str, float]]:
-    orders = dataset.get("orders", [])
-    serials: List[float] = []
-    for o in orders:
+    due_minutes: Dict[str, float] = {}
+    for o in dataset.get("orders", []):
         serial = _safe_float(o.get("due_serial"), 0.0)
         if serial <= 0:
             serial = _excel_serial_from_iso(o.get("due_date")) or 0.0
         if serial > 0:
-            serials.append(serial)
-    base_serial = min(serials) if serials else 0.0
-
-    shift_minutes = calendar_cfg["shift_minutes"]
-    due_minutes: Dict[str, float] = {}
-    for o in orders:
-        serial = _safe_float(o.get("due_serial"), 0.0)
-        if serial <= 0:
-            serial = _excel_serial_from_iso(o.get("due_date")) or 0.0
-        if serial > 0 and base_serial > 0:
-            due_minutes[o.get("order_id", "")] = (serial - base_serial + 1.0) * shift_minutes
+            due_minutes[o.get("order_id", "")] = serial * shift_minutes
         else:
             due_minutes[o.get("order_id", "")] = float("inf")
-    return base_serial, due_minutes
+    return due_minutes
 
 
 def _setup_time(dataset: Dict[str, Any], line_id: str, from_code: Optional[str], to_code: str) -> float:
@@ -145,21 +175,29 @@ def _to_order_objects(dataset: Dict[str, Any], due_minutes: Dict[str, float]) ->
     return out
 
 
-def _kpi(tasks: List[Task], unscheduled: List[Dict[str, Any]]) -> Dict[str, float]:
+def _kpi(tasks: List[Task], unscheduled: List[Dict[str, Any]], cfg: Dict[str, float]) -> Dict[str, float]:
     total_tardy = sum(t.tardy_min for t in tasks)
     total_setup = sum(t.setup_min for t in tasks)
-    makespan = max((t.end_min for t in tasks), default=0.0)
-    makespan_work = max((t.end_work_min for t in tasks), default=0.0)
-    avg_completion = (sum(t.end_min for t in tasks) / len(tasks)) if tasks else 0.0
-    avg_completion_work = (sum(t.end_work_min for t in tasks) / len(tasks)) if tasks else 0.0
+
+    if tasks:
+        makespan_cal = max(t.end_min for t in tasks) - cfg["anchor_cal_abs"]
+        makespan_work = max(t.end_work_min for t in tasks) - cfg["anchor_work_abs"]
+        avg_completion = (sum(t.end_min for t in tasks) / len(tasks)) - cfg["anchor_cal_abs"]
+        avg_completion_work = (sum(t.end_work_min for t in tasks) / len(tasks)) - cfg["anchor_work_abs"]
+    else:
+        makespan_cal = 0.0
+        makespan_work = 0.0
+        avg_completion = 0.0
+        avg_completion_work = 0.0
+
     total_orders = len(tasks) + len(unscheduled)
     return {
         "total_tardy_min": round(total_tardy, 2),
         "total_setup_min": round(total_setup, 2),
-        "makespan_min": round(makespan, 2),
-        "makespan_work_min": round(makespan_work, 2),
-        "avg_completion_min": round(avg_completion, 2),
-        "avg_completion_work_min": round(avg_completion_work, 2),
+        "makespan_min": round(max(0.0, makespan_cal), 2),
+        "makespan_work_min": round(max(0.0, makespan_work), 2),
+        "avg_completion_min": round(max(0.0, avg_completion), 2),
+        "avg_completion_work_min": round(max(0.0, avg_completion_work), 2),
         "total_orders": total_orders,
         "scheduled_orders": len(tasks),
         "unscheduled_orders": len(unscheduled),
@@ -191,47 +229,46 @@ def _tasks_to_dict(tasks: List[Task]) -> List[Dict[str, Any]]:
                 "end_day": int(t.end_day),
                 "start_shift_min": round(t.start_shift_min, 2),
                 "end_shift_min": round(t.end_shift_min, 2),
+                "start_at": t.start_at,
+                "end_at": t.end_at,
             }
         )
     return out
 
 
-def _build_task(order: Order, line_id: str, setup: float, start_work: float, end_work: float, tardy: float, calendar_cfg: Dict[str, float]) -> Task:
-    start_day, start_shift_min, start_min = _work_to_parts(start_work, calendar_cfg)
-    end_day, end_shift_min, end_min = _work_to_parts(end_work, calendar_cfg)
-    due_work = order.due_min if math.isfinite(order.due_min) else None
+def _build_task(order: Order, line_id: str, setup: float, start_work_abs: float, end_work_abs: float, tardy: float, cfg: Dict[str, float]) -> Task:
+    s = _work_abs_to_parts(start_work_abs, cfg)
+    e = _work_abs_to_parts(end_work_abs, cfg)
+
     return Task(
         order_id=order.order_id,
         code=order.code,
         line_id=line_id,
         qty=order.qty,
         setup_min=setup,
-        start_min=start_min,
-        end_min=end_min,
+        start_min=s["calendar_abs_min"],
+        end_min=e["calendar_abs_min"],
         tardy_min=tardy,
         due_date=order.due_date,
-        start_work_min=start_work,
-        end_work_min=end_work,
-        due_work_min=due_work,
-        start_day=start_day,
-        end_day=end_day,
-        start_shift_min=start_shift_min,
-        end_shift_min=end_shift_min,
+        start_work_min=start_work_abs,
+        end_work_min=end_work_abs,
+        due_work_min=order.due_min if math.isfinite(order.due_min) else None,
+        start_day=s["relative_day"],
+        end_day=e["relative_day"],
+        start_shift_min=s["shift_min"],
+        end_shift_min=e["shift_min"],
+        start_at=s["at"].isoformat(timespec="minutes"),
+        end_at=e["at"].isoformat(timespec="minutes"),
     )
 
 
 def schedulazione_due_date(dataset: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    EDD con ottimizzazione secondaria:
-    1) ordini per due date
-    2) scelta linea con minimo tardy, poi end_work, poi setup, poi line_id
-    """
-    calendar_cfg = _calendar_config(dataset)
-    _, due_minutes = _compute_due_context(dataset, calendar_cfg)
+    cfg = _calendar_config(dataset)
+    due_minutes = _compute_due_context(dataset, cfg)
     orders = sorted(_to_order_objects(dataset, due_minutes), key=lambda o: o.due_sort_key)
 
     line_ids = [str(l.get("line_id")) for l in dataset.get("lines", []) if l.get("line_id")]
-    timeline_work = {line_id: 0.0 for line_id in line_ids}
+    timeline_work = {line_id: float(cfg["anchor_work_abs"]) for line_id in line_ids}
     last_code: Dict[str, Optional[str]] = {
         line_id: dataset.get("current_config", {}).get(line_id, {}).get("current_code")
         for line_id in line_ids
@@ -253,44 +290,40 @@ def schedulazione_due_date(dataset: Dict[str, Any]) -> Dict[str, Any]:
             start_work = timeline_work[line_id] + setup
             end_work = start_work + (order.qty * cycle)
             tardy = max(0.0, end_work - order.due_min)
-
-            candidate = (tardy, end_work, setup, line_id, start_work)
+            candidate = (tardy, end_work, setup, line_id)
             if best is None or candidate < best[0]:
                 best = (candidate, line_id, setup, start_work, end_work, tardy)
 
         if best is None:
-            unscheduled.append(
-                {
-                    "order_id": order.order_id,
-                    "code": order.code,
-                    "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
-                    "reason": "No eligible line/cycle time.",
-                }
-            )
+            unscheduled.append({
+                "order_id": order.order_id,
+                "code": order.code,
+                "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
+                "reason": "No eligible line/cycle time.",
+            })
             continue
 
         _, line_id, setup, start_work, end_work, tardy = best
         timeline_work[line_id] = end_work
         last_code[line_id] = order.code
-
-        tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, calendar_cfg))
+        tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, cfg))
 
     return {
         "strategy": "due_date",
         "tasks": _tasks_to_dict(tasks),
         "unscheduled": unscheduled,
-        "kpi": _kpi(tasks, unscheduled),
+        "kpi": _kpi(tasks, unscheduled, cfg),
     }
 
 
 class MinSetupScheduler:
     def __init__(self, dataset: Dict[str, Any]):
         self.dataset = dataset
-        self.calendar_cfg = _calendar_config(dataset)
-        _, due_minutes = _compute_due_context(dataset, self.calendar_cfg)
+        self.cfg = _calendar_config(dataset)
+        due_minutes = _compute_due_context(dataset, self.cfg)
         self.orders = _to_order_objects(dataset, due_minutes)
         self.line_ids = [str(l.get("line_id")) for l in dataset.get("lines", []) if l.get("line_id")]
-        self.timeline_work = {line_id: 0.0 for line_id in self.line_ids}
+        self.timeline_work = {line_id: float(self.cfg["anchor_work_abs"]) for line_id in self.line_ids}
         self.last_code: Dict[str, Optional[str]] = {
             line_id: dataset.get("current_config", {}).get(line_id, {}).get("current_code")
             for line_id in self.line_ids
@@ -305,27 +338,25 @@ class MinSetupScheduler:
         return order.qty * cycle
 
     def _assign_order(self, order: Order, line_id: str):
-        start_base_work = self.timeline_work[line_id]
+        start_base = self.timeline_work[line_id]
         setup = _setup_time(self.dataset, line_id, self.last_code.get(line_id), order.code)
         proc = self._processing_time(order, line_id)
         if proc is None:
-            self.unscheduled.append(
-                {
-                    "order_id": order.order_id,
-                    "code": order.code,
-                    "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
-                    "reason": "No cycle time for selected line.",
-                }
-            )
+            self.unscheduled.append({
+                "order_id": order.order_id,
+                "code": order.code,
+                "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
+                "reason": "No cycle time for selected line.",
+            })
             return
 
-        start_work = start_base_work + setup
+        start_work = start_base + setup
         end_work = start_work + proc
         tardy = max(0.0, end_work - order.due_min)
 
         self.timeline_work[line_id] = end_work
         self.last_code[line_id] = order.code
-        self.tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, self.calendar_cfg))
+        self.tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, self.cfg))
 
     def run(self) -> Dict[str, Any]:
         remaining = list(self.orders)
@@ -356,14 +387,12 @@ class MinSetupScheduler:
                     best = (score, order, line_id)
 
             for order in non_schedulable:
-                self.unscheduled.append(
-                    {
-                        "order_id": order.order_id,
-                        "code": order.code,
-                        "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
-                        "reason": "No eligible line/cycle time.",
-                    }
-                )
+                self.unscheduled.append({
+                    "order_id": order.order_id,
+                    "code": order.code,
+                    "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
+                    "reason": "No eligible line/cycle time.",
+                })
                 remaining.remove(order)
 
             if best is None:
@@ -377,7 +406,7 @@ class MinSetupScheduler:
             "strategy": "min_setup",
             "tasks": _tasks_to_dict(self.tasks),
             "unscheduled": self.unscheduled,
-            "kpi": _kpi(self.tasks, self.unscheduled),
+            "kpi": _kpi(self.tasks, self.unscheduled, self.cfg),
         }
 
 
@@ -386,18 +415,12 @@ def schedulazione_min_setup(dataset: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def schedulazione_balanced(dataset: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Strategia bilanciata:
-    - priorita a rispetto scadenze
-    - a parita riduce setup
-    - poi riduce completion work time e bilancia carico linea
-    """
-    calendar_cfg = _calendar_config(dataset)
-    _, due_minutes = _compute_due_context(dataset, calendar_cfg)
+    cfg = _calendar_config(dataset)
+    due_minutes = _compute_due_context(dataset, cfg)
     orders = sorted(_to_order_objects(dataset, due_minutes), key=lambda o: o.due_sort_key)
 
     line_ids = [str(l.get("line_id")) for l in dataset.get("lines", []) if l.get("line_id")]
-    timeline_work = {line_id: 0.0 for line_id in line_ids}
+    timeline_work = {line_id: float(cfg["anchor_work_abs"]) for line_id in line_ids}
     last_code: Dict[str, Optional[str]] = {
         line_id: dataset.get("current_config", {}).get(line_id, {}).get("current_code")
         for line_id in line_ids
@@ -419,39 +442,34 @@ def schedulazione_balanced(dataset: Dict[str, Any]) -> Dict[str, Any]:
             start_work = timeline_work[line_id] + setup
             end_work = start_work + (order.qty * cycle)
             tardy = max(0.0, end_work - order.due_min)
-            line_load_after = end_work
 
             candidate = (
                 1 if tardy > 0 else 0,
                 tardy,
                 setup,
                 end_work,
-                line_load_after,
                 line_id,
             )
             if best is None or candidate < best[0]:
                 best = (candidate, line_id, setup, start_work, end_work, tardy)
 
         if best is None:
-            unscheduled.append(
-                {
-                    "order_id": order.order_id,
-                    "code": order.code,
-                    "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
-                    "reason": "No eligible line/cycle time.",
-                }
-            )
+            unscheduled.append({
+                "order_id": order.order_id,
+                "code": order.code,
+                "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
+                "reason": "No eligible line/cycle time.",
+            })
             continue
 
         _, line_id, setup, start_work, end_work, tardy = best
         timeline_work[line_id] = end_work
         last_code[line_id] = order.code
-
-        tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, calendar_cfg))
+        tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, cfg))
 
     return {
         "strategy": "balanced",
         "tasks": _tasks_to_dict(tasks),
         "unscheduled": unscheduled,
-        "kpi": _kpi(tasks, unscheduled),
+        "kpi": _kpi(tasks, unscheduled, cfg),
     }

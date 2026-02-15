@@ -396,6 +396,8 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
         "end_day",
         "start_shift_min",
         "end_shift_min",
+        "start_at",
+        "end_at",
     ]:
         if col in task_cols:
             optional_cols.append(col)
@@ -421,6 +423,8 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
             "end_day": _to_int(t.get("end_day"), 0),
             "start_shift_min": _to_float(t.get("start_shift_min"), 0.0),
             "end_shift_min": _to_float(t.get("end_shift_min"), 0.0),
+            "start_at": t.get("start_at"),
+            "end_at": t.get("end_at"),
         }
         task_rows.append(tuple(row_map[c] for c in insert_task_cols))
 

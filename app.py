@@ -428,6 +428,36 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
     unique_lines = max(1, len(y_domain))
     height = max(220, unique_lines * 26)
 
+    has_ts = ("start_at" in chart_df.columns and "end_at" in chart_df.columns)
+    if has_ts:
+        chart_df["start_at"] = pd.to_datetime(chart_df["start_at"], errors="coerce")
+        chart_df["end_at"] = pd.to_datetime(chart_df["end_at"], errors="coerce")
+        has_ts = bool(chart_df["start_at"].notna().any() and chart_df["end_at"].notna().any())
+
+    if has_ts:
+        return (
+            alt.Chart(chart_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("start_at:T", title="Timeline calendario (data/ora)"),
+                x2="end_at:T",
+                y=alt.Y("line_id:N", title="Linea", sort=y_domain, scale=alt.Scale(domain=y_domain)),
+                color=alt.Color("code:N", title="Codice"),
+                tooltip=[
+                    alt.Tooltip("order_id:N", title="Ordine"),
+                    alt.Tooltip("code:N", title="Codice"),
+                    alt.Tooltip("line_id:N", title="Linea"),
+                    alt.Tooltip("qty:Q", title="Qta"),
+                    alt.Tooltip("setup_min:Q", title="Setup min"),
+                    alt.Tooltip("start_at:T", title="Inizio"),
+                    alt.Tooltip("end_at:T", title="Fine"),
+                    alt.Tooltip("tardy_min:Q", title="Ritardo min"),
+                ],
+            )
+            .properties(height=height)
+            .interactive()
+        )
+
     return (
         alt.Chart(chart_df)
         .mark_bar()
@@ -1146,6 +1176,16 @@ def render_enterprise_planner():
     if df_tasks.empty:
         st.warning("Il run selezionato non contiene task.")
         return
+
+    if "start_at" in df_tasks.columns and "end_at" in df_tasks.columns:
+        view = df_tasks.copy()
+        view["start_at"] = pd.to_datetime(view["start_at"], errors="coerce")
+        view["end_at"] = pd.to_datetime(view["end_at"], errors="coerce")
+        view["Inizio"] = view["start_at"].dt.strftime("%d/%m %H:%M").fillna("-")
+        view["Fine"] = view["end_at"].dt.strftime("%d/%m %H:%M").fillna("-")
+        show_cols = [c for c in ["order_id", "code", "line_id", "qty", "Inizio", "Fine", "setup_min", "tardy_min"] if c in view.columns]
+        st.markdown('<div class="section-title">Tabella schedulazione (orario reale)</div>', unsafe_allow_html=True)
+        st.dataframe(view[show_cols], width="stretch", hide_index=True)
 
     sched_lines = mgr.get_scheduler_lines()
     line_domain = [x["line_id"] for x in sched_lines] if sched_lines else None
