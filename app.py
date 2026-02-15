@@ -431,9 +431,9 @@ def apply_enterprise_theme():
 :root {
   --bg-1: #eff5fb;
   --bg-2: #eef7f2;
-  --panel: rgba(14, 30, 56, 0.78);
-  --ink: #eaf2ff;
-  --muted: #b7c7de;
+  --panel: #ffffff;
+  --ink: #10203a;
+  --muted: #5f6f86;
   --accent: #0a67d0;
   --accent-2: #05a58a;
   --danger: #bf3b3b;
@@ -448,55 +448,17 @@ html, body, [class*="css"] {
 }
 
 .stApp {
-  position: relative;
   background:
-    radial-gradient(1200px 560px at -8% -10%, rgba(69, 143, 255, 0.16), transparent 62%),
-    radial-gradient(980px 480px at 112% 0%, rgba(8, 189, 157, 0.14), transparent 60%),
-    linear-gradient(145deg, #081428, #071327) !important;
+    radial-gradient(1200px 560px at -8% -10%, rgba(69, 143, 255, 0.10), transparent 62%),
+    radial-gradient(980px 480px at 112% 0%, rgba(8, 189, 157, 0.08), transparent 60%),
+    linear-gradient(145deg, var(--bg-1), var(--bg-2)) !important;
   color: var(--ink) !important;
   overflow-x: clip;
 }
 
 .stApp::before,
 .stApp::after {
-  content: "";
-  position: fixed;
-  pointer-events: none;
-  z-index: 0;
-  filter: blur(42px);
-  opacity: 0.24;
-}
-
-.stApp::before {
-  width: 260px;
-  height: 260px;
-  left: -60px;
-  top: 18vh;
-  border-radius: 999px;
-  background: rgba(29, 136, 255, 0.46);
-  animation: blobA 16s ease-in-out infinite;
-}
-
-.stApp::after {
-  width: 220px;
-  height: 220px;
-  right: -40px;
-  top: 48vh;
-  border-radius: 999px;
-  background: rgba(8, 184, 154, 0.44);
-  animation: blobB 18s ease-in-out infinite;
-}
-
-@keyframes blobA {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(34px, -22px) scale(1.06); }
-  100% { transform: translate(0, 0) scale(1); }
-}
-
-@keyframes blobB {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(-28px, 26px) scale(1.05); }
-  100% { transform: translate(0, 0) scale(1); }
+  display: none !important;
 }
 
 @keyframes fadeInUp {
@@ -505,10 +467,9 @@ html, body, [class*="css"] {
 }
 
 .block-container {
-  position: relative;
-  z-index: 1;
   max-width: 1380px;
   padding-bottom: 96px !important;
+  color: var(--ink) !important;
 }
 
 .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
@@ -516,7 +477,7 @@ html, body, [class*="css"] {
   letter-spacing: 0.01em;
 }
 
-.stApp p, .stApp li, .stApp label, .stApp span, .stApp small, .stApp div {
+.stApp p, .stApp li, .stApp label, .stApp span, .stApp small {
   color: var(--ink) !important;
 }
 
@@ -525,7 +486,7 @@ html, body, [class*="css"] {
 }
 
 .card-kpi {
-  background: linear-gradient(180deg, rgba(18, 38, 70, 0.92), rgba(15, 31, 58, 0.88));
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(251, 254, 255, 0.94));
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 14px 16px;
@@ -552,7 +513,7 @@ html, body, [class*="css"] {
 }
 
 div[data-testid="stMetric"] {
-  background: linear-gradient(180deg, rgba(16, 34, 64, 0.92), rgba(13, 27, 51, 0.88));
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250, 253, 255, 0.95));
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 8px 10px;
@@ -578,7 +539,7 @@ div[data-testid="stMarkdownContainer"] span {
 }
 
 div[data-testid="stChatMessage"] {
-  background: rgba(16, 33, 60, 0.84);
+  background: rgba(255,255,255,0.88);
   border: 1px solid var(--stroke);
   border-radius: 14px;
   backdrop-filter: blur(3px);
@@ -593,7 +554,7 @@ div[data-testid="stChatMessageContent"] * {
 div[data-testid="stChatInput"] textarea,
 div[data-testid="stChatInput"] input {
   color: var(--ink) !important;
-  background: rgba(12, 28, 52, 0.9) !important;
+  background: rgba(255,255,255,0.95) !important;
   border: 1px solid var(--stroke) !important;
   border-radius: 14px !important;
 }
@@ -623,7 +584,7 @@ div[data-testid="stProgressBar"] > div > div {
 div.stButton > button {
   border-radius: 12px !important;
   border: 1px solid var(--stroke) !important;
-  background: linear-gradient(180deg, #123057, #0f294b) !important;
+  background: linear-gradient(180deg, #ffffff, #f3f8ff) !important;
   color: var(--ink) !important;
   font-weight: 600 !important;
   box-shadow: var(--shadow-soft) !important;
