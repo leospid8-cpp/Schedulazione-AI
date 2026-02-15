@@ -659,6 +659,23 @@ div.stButton > button:hover {
   transform: translateY(-1px);
 }
 
+/* Tooltip help (Home/SCADA/Grafici/Planner) leggibile su sfondi scuri */
+[role="tooltip"],
+[data-baseweb="tooltip"],
+[data-baseweb="popover"] [role="tooltip"] {
+  background: #f8fbff !important;
+  color: #11233d !important;
+  border: 1px solid #b8cbe5 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 10px 24px rgba(20, 36, 58, 0.22) !important;
+}
+
+[role="tooltip"] *,
+[data-baseweb="tooltip"] * {
+  color: #11233d !important;
+  font-weight: 600 !important;
+}
+
 [class*="st-key-scada_card_"] {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(249, 252, 255, 0.96));
   border: 1px solid #c7d7ea !important;
