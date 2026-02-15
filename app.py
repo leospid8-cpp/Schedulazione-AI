@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import google.generativeai as genai
 import json
 import time
@@ -19,7 +19,7 @@ except ImportError:
 #
 # configurazione
 #
-st.set_page_config(page_title="MES Dashboard 6.1", page_icon="📊", layout="wide")
+st.set_page_config(page_title="MES Dashboard 6.1", page_icon="ðŸ“Š", layout="wide")
 
 
 #
@@ -127,18 +127,18 @@ def esegui_azioni_ai(json_input: str) -> str:
                 lid = int(azione.get("linea_id"))
                 cod = str(azione.get("codice_ordine"))
                 st.session_state.linea_mgr.assegna_commessa(lid, cod)
-                log.append(f"✅ Linea {lid} -> Assegnata a {cod}")
+                log.append(f"âœ… Linea {lid} -> Assegnata a {cod}")
 
             elif cmd == "ferma_linea":
                 lid = int(azione.get("linea_id"))
                 motivo = str(azione.get("motivo", "Manuale"))
                 st.session_state.linea_mgr.set_stato(lid, "Ferma", motivo)
-                log.append(f"⛔ Linea {lid} STOP ({motivo})")
+                log.append(f"â›” Linea {lid} STOP ({motivo})")
 
             elif cmd == "avvia_linea":
                 lid = int(azione.get("linea_id"))
                 st.session_state.linea_mgr.set_stato(lid, "Attiva", "")
-                log.append(f"▶️ Linea {lid} START")
+                log.append(f"â–¶ï¸ Linea {lid} START")
 
         return "\n".join(log) if log else "Nessuna azione."
     except Exception as e:
@@ -480,7 +480,7 @@ html, body, [class*="css"] {
 }
 
 [data-testid="stHeader"]::before {
-  content: "📊 Dashboard";
+  content: "ðŸ“Š Dashboard";
   color: #f1f6ff;
   font-weight: 800;
   font-size: 1.42rem;
@@ -698,16 +698,16 @@ div.stButton > button:hover {
 
 def render_bottom_nav():
     with st.container(key="bottom_dock", horizontal=True, horizontal_alignment="center", gap="small"):
-        if st.button("🏠", key="dock_btn_home", help="Home"):
+        if st.button("🤖", key="dock_btn_home", help="Home"):
             st.session_state.app_section = "home"
             st.rerun()
-        if st.button("🏭", key="dock_btn_scada", help="SCADA"):
+        if st.button("ðŸ­", key="dock_btn_scada", help="SCADA"):
             st.session_state.app_section = "scada"
             st.rerun()
-        if st.button("📈", key="dock_btn_graphs", help="Grafici"):
+        if st.button("ðŸ“ˆ", key="dock_btn_graphs", help="Grafici"):
             st.session_state.app_section = "graphs"
             st.rerun()
-        if st.button("🗓️", key="dock_btn_planner", help="Planner"):
+        if st.button("ðŸ—“ï¸", key="dock_btn_planner", help="Planner"):
             st.session_state.app_section = "planner"
             st.rerun()
 
@@ -960,7 +960,7 @@ def render_enterprise_scada():
 
 def render_enterprise_graphs():
     st.title("Analytics & Confronto Linee")
-    st.caption("Seleziona una o più linee per confronto storico e performance.")
+    st.caption("Seleziona una o piÃ¹ linee per confronto storico e performance.")
 
     lines = st.session_state.linea_mgr.get_status()
     line_map = {str(l["id"]): l["nome"] for l in lines}
@@ -1148,7 +1148,7 @@ def render_enterprise_planner():
 
 def render_scheduler_section():
     st.divider()
-    st.subheader("📅 Schedulatore (solo DB)")
+    st.subheader("ðŸ“… Schedulatore (solo DB)")
 
     mgr = st.session_state.get("scheduler_mgr")
     if mgr is None:
@@ -1235,7 +1235,7 @@ def render_scheduler_section():
 #
 def render_home():
     global model, _ai_key_index
-    st.title("📊 Controllo Produzione Giornaliera")
+    st.title("ðŸ“Š Controllo Produzione Giornaliera")
 
     # totali
     tot_prodotti = st.session_state.linea_mgr.get_totale_produzione()
@@ -1246,10 +1246,10 @@ def render_home():
 
     # metriche
     col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Pezzi Fatti Oggi", tot_prodotti)
-    col2.metric("🎯 Obiettivo Totale", tot_target)
+    col1.metric("ðŸ“¦ Pezzi Fatti Oggi", tot_prodotti)
+    col2.metric("ðŸŽ¯ Obiettivo Totale", tot_target)
     mancanti = max(tot_target - tot_prodotti, 0)
-    col3.metric("📉 Pezzi Mancanti", mancanti)
+    col3.metric("ðŸ“‰ Pezzi Mancanti", mancanti)
 
     # avanzamento
     if tot_target > 0:
@@ -1262,17 +1262,17 @@ def render_home():
 
     # Sidebar
     with st.sidebar:
-        st.header("🎛️ Operatore")
+        st.header("ðŸŽ›ï¸ Operatore")
 
         # reset
-        with st.expander("🛠️ Reset Turno"):
-            if st.button("⚠️ NUOVO TURNO (Cancella Ordini + Reset Contatori)"):
+        with st.expander("ðŸ› ï¸ Reset Turno"):
+            if st.button("âš ï¸ NUOVO TURNO (Cancella Ordini + Reset Contatori)"):
                 st.session_state.ordine_mgr.reset_giornata()
                 st.warning("Turno resettato.")
                 st.rerun()
 
         # creazione ordini
-        with st.expander("📄 Nuovo Ordine", expanded=True):
+        with st.expander("ðŸ“„ Nuovo Ordine", expanded=True):
             modelli = ["Porsche", "Ferrari", "Audi", "Mercedes"]
             mod = st.selectbox("Modello", modelli)
             cod = st.text_input("Codice", "ORD-01")
@@ -1283,20 +1283,20 @@ def render_home():
                 st.rerun()
 
         st.divider()
-        st.header("🏭 Linee produttive")
+        st.header("ðŸ­ Linee produttive")
 
         linee = st.session_state.linea_mgr.get_status()
         st.caption("Clicca su una linea per aprire la pagina dedicata.")
         for l in linee:
-            color = "🟢" if l["stato"] == "Attiva" else "🔴"
+            color = "ðŸŸ¢" if l["stato"] == "Attiva" else "ðŸ”´"
             if st.button(f"{color} {l['nome']}", key=f"nav_{l['id']}"):
                 goto_linea(l["id"])
 
         st.divider()
-        st.subheader("⚡ Controlli rapidi")
+        st.subheader("âš¡ Controlli rapidi")
 
         for l in linee:
-            color = "🟢" if l["stato"] == "Attiva" else "🔴"
+            color = "ðŸŸ¢" if l["stato"] == "Attiva" else "ðŸ”´"
             titolo = f"{color} {l['nome']}"
 
             with st.expander(titolo):
@@ -1308,12 +1308,12 @@ def render_home():
                     target_ord = next((o["quantita"] for o in ordini_raw if o["codice"] == ord_code), 0)
                     fatti_totali = progress_dict.get(ord_code, 0)
 
-                    st.info(f"🔨 Lavora su: **{ord_code}**")
+                    st.info(f"ðŸ”¨ Lavora su: **{ord_code}**")
                     perc = int((fatti_totali / target_ord * 100)) if target_ord > 0 else 0
                     st.write(f"Avanzamento Ordine: **{fatti_totali}** / {target_ord} ({perc}%)")
                     st.progress(min(perc / 100, 1.0))
                 else:
-                    st.warning("💤 In attesa")
+                    st.warning("ðŸ’¤ In attesa")
 
                 # contatori linea
                 c1, c2 = st.columns(2)
@@ -1344,7 +1344,7 @@ def render_home():
 
     # CHAT
     with col_chat:
-        st.subheader("🤖 AI Factory Manager")
+        st.subheader("ðŸ¤– AI Factory Manager")
 
         if model is None:
             st.info("AI non disponibile: configura GOOGLE_API_KEY in secrets per usare il chatbot.")
@@ -1463,7 +1463,7 @@ ISTRUZIONI:
 
     # KPI ORDINI
     with col_kpi:
-        st.info("📋 **Stato Avanzamento Ordini**")
+        st.info("ðŸ“‹ **Stato Avanzamento Ordini**")
         if ordini_raw:
             for o in ordini_raw:
                 codice = o["codice"]
@@ -1486,24 +1486,24 @@ def render_linea_detail(linea_id: int):
     linea = st.session_state.linea_mgr.get_linea(linea_id)
     if not linea:
         st.error("Linea non trovata.")
-        if st.button("⬅️ Torna alla Home"):
+        if st.button("â¬…ï¸ Torna alla Home"):
             goto_home()
         return
 
     # Header + back
     top_left, top_right = st.columns([1, 3])
     with top_left:
-        if st.button("⬅️ Home"):
+        if st.button("â¬…ï¸ Home"):
             goto_home()
     with top_right:
-        st.title(f"📈 Dettaglio {linea['nome']}")
+        st.title(f"ðŸ“ˆ Dettaglio {linea['nome']}")
 
     st.caption(f"Vincoli: {linea['vincoli']}")
 
     # stato + ordine assegnato
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Stato", linea["stato"])
-    c2.metric("Ordine assegnato", linea["target_assegnato"] if linea["target_assegnato"] else "—")
+    c2.metric("Ordine assegnato", linea["target_assegnato"] if linea["target_assegnato"] else "â€”")
     c3.metric("Buoni (contatore live)", linea["pezzi_fatti"])
     c4.metric("Scarti (contatore live)", linea["pezzi_scarti"])
 
@@ -1522,7 +1522,7 @@ def render_linea_detail(linea_id: int):
             start_day, end_day = parse_date_range_input(raw_range)
         else:
             start_day, end_day = build_range(range_key)
-            st.write(f"Intervallo: **{start_day} → {end_day}**")
+            st.write(f"Intervallo: **{start_day} â†’ {end_day}**")
 
     df = produzione_df(linea_id, start_day, end_day)
 
@@ -1540,7 +1540,7 @@ def render_linea_detail(linea_id: int):
     if total_target > 0:
         k4.metric("Target nel range", total_target, delta=f"{total_ok - total_target}")
     else:
-        k4.metric("Target nel range", "—")
+        k4.metric("Target nel range", "â€”")
 
     st.subheader("Produzione vs Obiettivo")
     st.altair_chart(grafico_produzione(df), use_container_width=True)
@@ -1548,7 +1548,7 @@ def render_linea_detail(linea_id: int):
     st.divider()
 
     # Imposta obiettivo
-    st.subheader("🎯 Imposta obiettivo giornaliero (opzionale)")
+    st.subheader("ðŸŽ¯ Imposta obiettivo giornaliero (opzionale)")
     st.caption("Serve per il confronto nel grafico. Se non lo imposti, l'obiettivo resta 0.")
     col_t1, col_t2 = st.columns([1, 2])
     with col_t1:
@@ -1562,7 +1562,7 @@ def render_linea_detail(linea_id: int):
     st.divider()
 
     # Tabella dettaglio
-    st.subheader("📅 Dettaglio giornaliero")
+    st.subheader("ðŸ“… Dettaglio giornaliero")
     st.dataframe(df, use_container_width=True)
 
 
