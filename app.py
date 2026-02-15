@@ -389,6 +389,8 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
     chart_df = df_tasks.copy()
     chart_df["line_id"] = chart_df["line_id"].astype(str)
     chart_df["code"] = chart_df["code"].astype(str)
+    if "due_at" not in chart_df.columns:
+        chart_df["due_at"] = pd.NaT
 
     if all_lines:
         y_domain = sorted({str(x) for x in all_lines})
@@ -429,6 +431,60 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
         .properties(height=height)
         .interactive()
     )
+
+
+def _backfill_task_datetimes_if_missing(df_tasks: pd.DataFrame, run_created_at, cal: dict) -> pd.DataFrame:
+    """
+    Per run legacy con start_at/end_at null:
+    ricostruisce datetime da start_min/end_min mantenendo il planner in formato orario reale.
+    """
+    out = df_tasks.copy()
+    if "start_at" not in out.columns:
+        out["start_at"] = pd.NaT
+    if "end_at" not in out.columns:
+        out["end_at"] = pd.NaT
+
+    out["start_at"] = pd.to_datetime(out["start_at"], errors="coerce")
+    out["end_at"] = pd.to_datetime(out["end_at"], errors="coerce")
+    missing_mask = out["start_at"].isna() | out["end_at"].isna()
+    if not missing_mask.any():
+        return out
+
+    if "start_min" not in out.columns or "end_min" not in out.columns:
+        return out
+
+    base = pd.to_datetime(run_created_at, errors="coerce")
+    if pd.isna(base):
+        base = pd.Timestamp.now()
+    base = pd.Timestamp(base).tz_localize(None).normalize()
+
+    day_minutes = float(cal.get("day_minutes", 1440) or 1440)
+    shift_start = float(cal.get("shift_start_min", 360) or 360)
+
+    start_num = pd.to_numeric(out["start_min"], errors="coerce")
+    end_num = pd.to_numeric(out["end_min"], errors="coerce")
+    min_ref = pd.concat([start_num, end_num], axis=0).min()
+    if pd.isna(min_ref):
+        min_ref = 0.0
+
+    def to_dt(raw_min):
+        if pd.isna(raw_min):
+            return pd.NaT
+        m = float(raw_min) - float(min_ref)
+        if m < 0:
+            m = 0.0
+        days = int(m // day_minutes)
+        rem = m - (days * day_minutes)
+        return base + pd.Timedelta(days=days, minutes=(shift_start + rem))
+
+    out.loc[missing_mask, "start_at"] = start_num[missing_mask].map(to_dt)
+    out.loc[missing_mask, "end_at"] = end_num[missing_mask].map(to_dt)
+
+    if "due_at" not in out.columns:
+        out["due_at"] = pd.NaT
+    due_dt = pd.to_datetime(out.get("due_date"), errors="coerce")
+    out.loc[out["due_at"].isna(), "due_at"] = due_dt + pd.to_timedelta(shift_start, unit="m")
+    return out
 
 
 def apply_enterprise_theme():
@@ -1089,7 +1145,7 @@ def render_enterprise_planner():
             f"Run: **{stats['sched_runs']}** | Task: **{stats['sched_tasks']}**"
         )
         st.caption(
-            f"Calendario: turno={cal['shift_minutes']} min | giorno={cal['day_minutes']} min | inizio turno={cal['shift_start_min']} min (06:00)"
+            f"Calendario: turno={float(cal['shift_minutes']) / 60:.0f}h | giorno={float(cal['day_minutes']) / 60:.0f}h | inizio turno=06:00"
         )
 
     runs = mgr.get_recent_runs(limit=50)
@@ -1118,9 +1174,8 @@ def render_enterprise_planner():
     if df_tasks.empty:
         st.warning("Il run selezionato non contiene task.")
         return
-    if "start_at" not in df_tasks.columns or "end_at" not in df_tasks.columns:
-        st.warning("Questo run non ha orari reali. Rigenera il piano con la nuova logica a turni.")
-        return
+
+    df_tasks = _backfill_task_datetimes_if_missing(df_tasks, row.get("created_at"), cal)
 
     sched_lines = mgr.get_scheduler_lines()
     line_domain = [x["line_id"] for x in sched_lines] if sched_lines else None
@@ -1131,10 +1186,13 @@ def render_enterprise_planner():
     else:
         st.altair_chart(gantt, width="stretch")
 
-    edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_at", "end_at", "due_date"]
+    if "due_at" not in df_tasks.columns:
+        df_tasks["due_at"] = pd.NaT
+    edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_at", "end_at", "due_at", "due_date"]
     df_edit = df_tasks[edit_cols].copy()
     df_edit["start_at"] = pd.to_datetime(df_edit["start_at"], errors="coerce")
     df_edit["end_at"] = pd.to_datetime(df_edit["end_at"], errors="coerce")
+    df_edit["due_at"] = pd.to_datetime(df_edit["due_at"], errors="coerce")
     line_options = line_domain if line_domain else sorted(df_edit["line_id"].astype(str).unique())
 
     edited = st.data_editor(
@@ -1147,6 +1205,7 @@ def render_enterprise_planner():
             "setup_min": st.column_config.NumberColumn("setup_min", min_value=0.0, step=0.1),
             "start_at": st.column_config.DatetimeColumn("start_at", format="DD/MM/YYYY HH:mm"),
             "end_at": st.column_config.DatetimeColumn("end_at", format="DD/MM/YYYY HH:mm"),
+            "due_at": st.column_config.DatetimeColumn("due_at", format="DD/MM/YYYY HH:mm", disabled=True),
         },
         key="planner_editor",
     )
