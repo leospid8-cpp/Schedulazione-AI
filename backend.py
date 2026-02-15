@@ -860,6 +860,7 @@ class SchedulerManager:
             "shift_minutes": 480.0,
             "day_minutes": 1440.0,
             "shift_start_min": 0.0,
+            "anchor_now": True,
         }
         if not self._table_exists("sched_shift_config"):
             return cfg

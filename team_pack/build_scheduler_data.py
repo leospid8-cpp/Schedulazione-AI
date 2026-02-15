@@ -498,6 +498,7 @@ def build_dataset(xlsx_path):
             "shift_minutes": 480,
             "day_minutes": 1440,
             "shift_start_min": 0,
+            "anchor_now": True,
         },
         "excel_context": {
             "line_specs": line_specs,
