@@ -474,6 +474,20 @@ html, body, [class*="css"] {
   color: var(--accent-2) !important;
 }
 
+[data-testid="stHeader"] {
+  background: linear-gradient(90deg, #1f2b40, #25354f) !important;
+  border-bottom: 1px solid #3f536f !important;
+}
+
+[data-testid="stHeader"]::before {
+  content: "Dashboard";
+  color: #f1f6ff;
+  font-weight: 700;
+  font-size: 1.02rem;
+  margin-left: 14px;
+  letter-spacing: 0.01em;
+}
+
 .card-kpi {
   background: linear-gradient(180deg, #ffffff, #f8fbff);
   border: 1px solid var(--stroke);
@@ -639,6 +653,20 @@ div.stButton > button:hover {
   border-color: #f4b082 !important;
   background: linear-gradient(160deg, #415675, #4a6288) !important;
   transform: translateY(-1px);
+}
+
+[class*="st-key-scada_card_"] {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(249, 252, 255, 0.96));
+  border: 1px solid #c7d7ea !important;
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+  padding: 8px;
+}
+
+[class*="st-key-scada_card_"] p,
+[class*="st-key-scada_card_"] span,
+[class*="st-key-scada_card_"] div {
+  color: var(--ink) !important;
 }
 
 .block-container {
@@ -866,7 +894,7 @@ def render_enterprise_scada():
         live_line = live_by_scheduler_id.get(str(line_id))
         col = cols[idx % 3]
         with col:
-            with st.container(border=True):
+            with st.container(border=True, key=f"scada_card_{idx}"):
                 if live_line:
                     stato = live_line["stato"]
                     status_color = "LIVE" if stato == "Attiva" else "STOP"
