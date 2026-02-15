@@ -1,0 +1,32 @@
+Pipeline completa (schema + import dati + run scheduler + salvataggio risultati)
+
+Prerequisiti:
+1) Variabile ambiente SUPABASE_URL valorizzata
+   oppure passare --db-url "postgresql://..."
+2) Dataset presente in team_pack/data/scheduler_dataset.json
+
+Comandi:
+
+1) Test senza scrittura DB (consigliato):
+python -m team_pack.supabase_pipeline --dry-run
+
+2) Esecuzione completa (crea schema, importa input, salva due run):
+python -m team_pack.supabase_pipeline --strategy both
+
+2b) Esecuzione completa di tutte le logiche (3 run):
+python -m team_pack.supabase_pipeline --strategy all
+
+3) Esecuzione solo due_date:
+python -m team_pack.supabase_pipeline --strategy due_date
+
+4) Esecuzione solo min_setup:
+python -m team_pack.supabase_pipeline --strategy min_setup
+
+5) Esecuzione solo balanced:
+python -m team_pack.supabase_pipeline --strategy balanced
+
+Opzioni utili:
+- --skip-schema     (non riesegue il file schema SQL)
+- --dataset PATH    (dataset custom)
+- --schema PATH     (schema SQL custom)
+- --db-url URL      (override SUPABASE_URL)
