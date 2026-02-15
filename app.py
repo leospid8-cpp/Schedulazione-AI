@@ -1136,13 +1136,13 @@ def render_enterprise_planner():
         if callable(get_cal):
             cal = get_cal()
         else:
-            cal = {"shift_minutes": 480, "day_minutes": 1440, "shift_start_min": 0}
+            cal = {"shift_minutes": 480, "day_minutes": 1440, "shift_start_min": 360}
         st.write(
             f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
             f"Run: **{stats['sched_runs']}** | Task: **{stats['sched_tasks']}**"
         )
         st.caption(
-            f"Calendario: turno={cal['shift_minutes']} min | giorno={cal['day_minutes']} min | inizio turno={cal['shift_start_min']} min"
+            f"Calendario: turno={cal['shift_minutes']} min | giorno={cal['day_minutes']} min | inizio turno={cal['shift_start_min']} min (06:00)"
         )
 
     orders = mgr.get_scheduler_orders(limit=500)
@@ -1176,6 +1176,9 @@ def render_enterprise_planner():
     if df_tasks.empty:
         st.warning("Il run selezionato non contiene task.")
         return
+    if "start_at" not in df_tasks.columns or "end_at" not in df_tasks.columns:
+        st.warning("Questo run non ha orari reali. Rigenera il piano con la nuova logica a turni.")
+        return
 
     if "start_at" in df_tasks.columns and "end_at" in df_tasks.columns:
         view = df_tasks.copy()
@@ -1192,8 +1195,10 @@ def render_enterprise_planner():
 
     st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), width="stretch")
 
-    edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_min", "end_min", "due_date"]
+    edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_at", "end_at", "due_date"]
     df_edit = df_tasks[edit_cols].copy()
+    df_edit["start_at"] = pd.to_datetime(df_edit["start_at"], errors="coerce")
+    df_edit["end_at"] = pd.to_datetime(df_edit["end_at"], errors="coerce")
     line_options = line_domain if line_domain else sorted(df_edit["line_id"].astype(str).unique())
 
     edited = st.data_editor(
@@ -1204,8 +1209,8 @@ def render_enterprise_planner():
             "line_id": st.column_config.SelectboxColumn("line_id", options=line_options),
             "qty": st.column_config.NumberColumn("qty", min_value=0, step=1),
             "setup_min": st.column_config.NumberColumn("setup_min", min_value=0.0, step=0.1),
-            "start_min": st.column_config.NumberColumn("start_min", min_value=0.0, step=0.1),
-            "end_min": st.column_config.NumberColumn("end_min", min_value=0.0, step=0.1),
+            "start_at": st.column_config.DatetimeColumn("start_at", format="DD/MM/YYYY HH:mm"),
+            "end_at": st.column_config.DatetimeColumn("end_at", format="DD/MM/YYYY HH:mm"),
         },
         key="planner_editor",
     )

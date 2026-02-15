@@ -52,13 +52,17 @@ create table if not exists public.sched_shift_config (
   config_id smallint primary key default 1 check (config_id = 1),
   shift_minutes numeric(12, 2) not null default 480 check (shift_minutes > 0),
   day_minutes numeric(12, 2) not null default 1440 check (day_minutes >= shift_minutes),
-  shift_start_min numeric(12, 2) not null default 0 check (shift_start_min >= 0 and shift_start_min < 1440),
+  shift_start_min numeric(12, 2) not null default 360 check (shift_start_min >= 0 and shift_start_min < 1440),
   updated_at timestamptz not null default now()
 );
 
 insert into public.sched_shift_config(config_id, shift_minutes, day_minutes, shift_start_min)
-values (1, 480, 1440, 0)
+values (1, 480, 1440, 360)
 on conflict (config_id) do nothing;
+
+update public.sched_shift_config
+set shift_start_min = 360
+where config_id = 1;
 
 create table if not exists public.sched_runs (
   run_id bigserial primary key,
@@ -108,7 +112,7 @@ alter table public.sched_runs
   add column if not exists day_minutes numeric(12, 2) default 1440;
 
 alter table public.sched_runs
-  add column if not exists shift_start_min numeric(12, 2) default 0;
+  add column if not exists shift_start_min numeric(12, 2) default 360;
 
 alter table public.sched_tasks
   add column if not exists start_work_min numeric(12, 2);
@@ -136,3 +140,6 @@ alter table public.sched_tasks
 
 alter table public.sched_tasks
   add column if not exists end_at timestamptz;
+
+alter table public.sched_tasks
+  add column if not exists due_at timestamptz;

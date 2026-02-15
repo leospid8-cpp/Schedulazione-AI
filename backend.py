@@ -859,7 +859,7 @@ class SchedulerManager:
         cfg = {
             "shift_minutes": 480.0,
             "day_minutes": 1440.0,
-            "shift_start_min": 0.0,
+            "shift_start_min": 360.0,
             "anchor_now": True,
         }
         if not self._table_exists("sched_shift_config"):
@@ -882,16 +882,34 @@ class SchedulerManager:
             except Exception:
                 cfg["day_minutes"] = 1440.0
             try:
-                cfg["shift_start_min"] = float(r.get("shift_start_min") or 0.0)
+                cfg["shift_start_min"] = float(r.get("shift_start_min") or 360.0)
             except Exception:
-                cfg["shift_start_min"] = 0.0
+                cfg["shift_start_min"] = 360.0
 
         if cfg["shift_minutes"] <= 0:
             cfg["shift_minutes"] = 480.0
         if cfg["day_minutes"] < cfg["shift_minutes"]:
             cfg["day_minutes"] = max(cfg["shift_minutes"], 1440.0)
         if cfg["shift_start_min"] < 0 or cfg["shift_start_min"] >= cfg["day_minutes"]:
-            cfg["shift_start_min"] = 0.0
+            cfg["shift_start_min"] = 360.0
+        if cfg["shift_start_min"] == 0:
+            cfg["shift_start_min"] = 360.0
+
+        today_serial = date.today().toordinal() - date(1899, 12, 30).toordinal()
+        now_dt = datetime.now()
+        minute_of_day = now_dt.hour * 60.0 + now_dt.minute + (now_dt.second / 60.0)
+        shift_start = float(cfg["shift_start_min"])
+        shift_minutes = float(cfg["shift_minutes"])
+        shift_end = shift_start + shift_minutes
+        if minute_of_day <= shift_start:
+            in_shift = 0.0
+        elif minute_of_day >= shift_end:
+            in_shift = shift_minutes
+        else:
+            in_shift = minute_of_day - shift_start
+        cfg["anchor_day_serial"] = float(today_serial)
+        cfg["anchor_work_abs"] = float(today_serial * shift_minutes + in_shift)
+        cfg["anchor_cal_abs"] = float(today_serial * float(cfg["day_minutes"]) + shift_start + in_shift)
         return cfg
 
     def _calendar_to_work_min(self, calendar_min: float, cfg: dict) -> float:
@@ -922,6 +940,36 @@ class SchedulerManager:
             "day": day_idx + 1,
             "shift_min": in_shift,
         }
+
+    def _parse_datetime_like(self, value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        s = str(value).strip()
+        if not s:
+            return None
+        s = s.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M", "%d/%m %H:%M"):
+            try:
+                d = datetime.strptime(s, fmt)
+                if fmt == "%d/%m %H:%M":
+                    now = datetime.now()
+                    d = d.replace(year=now.year)
+                return d
+            except Exception:
+                continue
+        return None
+
+    def _datetime_to_calendar_min(self, dt_value: datetime, cfg: dict) -> float:
+        base = date(1899, 12, 30).toordinal()
+        d_ord = dt_value.date().toordinal() - base
+        minute_of_day = dt_value.hour * 60.0 + dt_value.minute + (dt_value.second / 60.0)
+        return (d_ord * float(cfg["day_minutes"])) + minute_of_day
 
     def run_scheduler(self, strategy: str = "all"):
         from team_pack.supabase_pipeline import (
@@ -1036,6 +1084,7 @@ class SchedulerManager:
         orders = self.db.execute("SELECT order_id, due_serial, due_date FROM public.sched_orders")
         calendar_cfg = self._get_calendar_config()
         shift_minutes = float(calendar_cfg["shift_minutes"])
+        anchor_work_abs = float(calendar_cfg.get("anchor_work_abs", 0.0))
         due_by_order = {}
         serials = []
         for o in orders:
@@ -1054,8 +1103,17 @@ class SchedulerManager:
                 continue
             qty = int(float(row.get("qty", 0)))
             setup_min = float(row.get("setup_min", 0))
-            start_min = float(row.get("start_min", 0))
-            end_min = float(row.get("end_min", 0))
+            start_dt = self._parse_datetime_like(row.get("start_at"))
+            end_dt = self._parse_datetime_like(row.get("end_at"))
+
+            if start_dt is not None:
+                start_min = float(self._datetime_to_calendar_min(start_dt, calendar_cfg))
+            else:
+                start_min = float(row.get("start_min", 0))
+            if end_dt is not None:
+                end_min = float(self._datetime_to_calendar_min(end_dt, calendar_cfg))
+            else:
+                end_min = float(row.get("end_min", 0))
             if end_min < start_min:
                 end_min = start_min
 
@@ -1068,7 +1126,7 @@ class SchedulerManager:
             due_info = due_by_order.get(order_id, {"due_serial": 0.0, "due_date": None})
             due_serial = float(due_info.get("due_serial") or 0.0)
             if due_serial > 0 and base_serial > 0:
-                due_work_min = (due_serial - base_serial + 1.0) * shift_minutes
+                due_work_min = anchor_work_abs + ((due_serial - base_serial + 1.0) * shift_minutes)
                 tardy_min = max(0.0, end_work_min - due_work_min)
             else:
                 due_work_min = None
@@ -1077,6 +1135,30 @@ class SchedulerManager:
             due_date = row.get("due_date") or due_info.get("due_date")
             start_parts = self._work_to_calendar_parts(start_work_min, calendar_cfg)
             end_parts = self._work_to_calendar_parts(end_work_min, calendar_cfg)
+
+            start_at = start_dt.isoformat(timespec="minutes") if start_dt else None
+            end_at = end_dt.isoformat(timespec="minutes") if end_dt else None
+            if start_at is None:
+                base_date = date(1899, 12, 30) + timedelta(days=int(start_min // float(calendar_cfg["day_minutes"])))
+                mday = start_min - (int(start_min // float(calendar_cfg["day_minutes"])) * float(calendar_cfg["day_minutes"]))
+                hh = int(mday // 60)
+                mm = int(mday % 60)
+                start_at = datetime.combine(base_date, datetime.min.time()).replace(hour=hh % 24, minute=mm).isoformat(timespec="minutes")
+            if end_at is None:
+                base_date = date(1899, 12, 30) + timedelta(days=int(end_min // float(calendar_cfg["day_minutes"])))
+                mday = end_min - (int(end_min // float(calendar_cfg["day_minutes"])) * float(calendar_cfg["day_minutes"]))
+                hh = int(mday // 60)
+                mm = int(mday % 60)
+                end_at = datetime.combine(base_date, datetime.min.time()).replace(hour=hh % 24, minute=mm).isoformat(timespec="minutes")
+            due_at = None
+            if due_work_min is not None:
+                due_parts = self._work_to_calendar_parts(due_work_min, calendar_cfg)
+                due_cal = float(due_parts["calendar_min"])
+                due_date_base = date(1899, 12, 30) + timedelta(days=int(due_cal // float(calendar_cfg["day_minutes"])))
+                mday = due_cal - (int(due_cal // float(calendar_cfg["day_minutes"])) * float(calendar_cfg["day_minutes"]))
+                hh = int(mday // 60)
+                mm = int(mday % 60)
+                due_at = datetime.combine(due_date_base, datetime.min.time()).replace(hour=hh % 24, minute=mm).isoformat(timespec="minutes")
 
             normalized.append(
                 {
@@ -1096,6 +1178,9 @@ class SchedulerManager:
                     "end_day": int(end_parts["day"]),
                     "start_shift_min": float(start_parts["shift_min"]),
                     "end_shift_min": float(end_parts["shift_min"]),
+                    "start_at": start_at,
+                    "end_at": end_at,
+                    "due_at": due_at,
                 }
             )
 
@@ -1177,6 +1262,9 @@ class SchedulerManager:
                     "end_day",
                     "start_shift_min",
                     "end_shift_min",
+                    "start_at",
+                    "end_at",
+                    "due_at",
                 ]:
                     if extra_col in task_cols:
                         insert_cols.append(extra_col)
@@ -1200,6 +1288,9 @@ class SchedulerManager:
                         "end_day": t.get("end_day"),
                         "start_shift_min": t.get("start_shift_min"),
                         "end_shift_min": t.get("end_shift_min"),
+                        "start_at": t.get("start_at"),
+                        "end_at": t.get("end_at"),
+                        "due_at": t.get("due_at"),
                     }
                     cur.execute(
                         f"""
@@ -1231,7 +1322,7 @@ class SchedulerManager:
             SELECT *
             FROM public.sched_tasks
             WHERE run_id = %s
-            ORDER BY start_min, line_id, task_id
+            ORDER BY COALESCE(start_at, to_timestamp(start_min * 60.0)), line_id, task_id
             """,
             (run_id,),
         )
