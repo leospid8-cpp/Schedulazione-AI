@@ -540,7 +540,7 @@ div[data-testid="stProgressBar"] > div > div {
 
 .st-key-bottom_dock {
   position: fixed;
-  left: 50% !important;
+  left: 50vw !important;
   right: auto !important;
   transform: translateX(-50%) !important;
   bottom: 8px;
@@ -560,6 +560,7 @@ div[data-testid="stProgressBar"] > div > div {
 
 .st-key-bottom_dock div[data-testid="stHorizontalBlock"] {
   gap: 6px !important;
+  width: 100% !important;
   justify-content: center !important;
   align-items: center !important;
 }
@@ -618,9 +619,7 @@ div[data-testid="stProgressBar"] > div > div {
 
 def render_bottom_nav():
     with st.container(key="bottom_dock"):
-        sp_l, c1, c2, c3, c4, sp_r = st.columns([0.6, 1, 1, 1, 1, 0.6], gap="small")
-        with sp_l:
-            st.write("")
+        c1, c2, c3, c4 = st.columns(4, gap="small")
         with c1:
             if st.button("🏠", key="dock_btn_home", use_container_width=True, help="Home"):
                 st.session_state.app_section = "home"
@@ -637,8 +636,6 @@ def render_bottom_nav():
             if st.button("🗓️", key="dock_btn_planner", use_container_width=True, help="Planner"):
                 st.session_state.app_section = "planner"
                 st.rerun()
-        with sp_r:
-            st.write("")
 
 
 def render_home_chat_panel():
