@@ -543,13 +543,13 @@ div[data-testid="stProgressBar"] > div > div {
   left: 50% !important;
   right: auto !important;
   transform: translateX(-50%) !important;
-  bottom: 14px;
+  bottom: 12px;
   z-index: 9999;
-  width: min(420px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));
   background: rgba(11, 20, 38, 0.92);
   border: 1px solid #1f3354;
-  border-radius: 22px;
-  padding: 10px 12px;
+  border-radius: 20px;
+  padding: 8px 10px;
   box-shadow: 0 12px 28px rgba(8, 16, 32, 0.35);
   backdrop-filter: blur(10px);
 }
@@ -559,7 +559,7 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .st-key-bottom_dock div[data-testid="stHorizontalBlock"] {
-  gap: 10px !important;
+  gap: 8px !important;
   justify-content: center !important;
   align-items: center !important;
 }
@@ -571,9 +571,9 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button {
-  width: 60px !important;
-  height: 60px !important;
-  border-radius: 14px !important;
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 13px !important;
   border: 1px solid #2b4a78 !important;
   background: #122647 !important;
   color: #e8f2ff !important;
@@ -581,7 +581,7 @@ div[data-testid="stProgressBar"] > div > div {
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
-  font-size: 2rem !important;
+  font-size: 1.85rem !important;
   line-height: 1 !important;
   font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif !important;
   font-weight: 700 !important;
@@ -591,7 +591,7 @@ div[data-testid="stProgressBar"] > div > div {
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button p {
   margin: 0 !important;
-  font-size: 2rem !important;
+  font-size: 1.85rem !important;
   line-height: 1 !important;
 }
 
@@ -608,7 +608,7 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .block-container {
-  padding-bottom: 110px !important;
+  padding-bottom: 102px !important;
 }
 </style>
         """,
