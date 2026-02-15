@@ -538,32 +538,36 @@ div[data-testid="stProgressBar"] > div > div {
   background-color: var(--accent) !important;
 }
 
-.bottom-nav-wrap {
+.st-key-bottom_dock {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
   bottom: 14px;
   z-index: 9999;
-  display: flex;
-  justify-content: center;
   width: min(360px, calc(100vw - 22px));
-}
-
-.bottom-nav-wrap > div {
   background: rgba(11, 20, 38, 0.92);
   border: 1px solid #1f3354;
   border-radius: 22px;
   padding: 10px 12px;
   box-shadow: 0 12px 28px rgba(8, 16, 32, 0.35);
   backdrop-filter: blur(10px);
-  width: 100%;
 }
 
-.st-key-dock_nav div[data-testid="stHorizontalBlock"] {
+.st-key-bottom_dock > div {
+  padding: 0 !important;
+}
+
+.st-key-bottom_dock div[data-testid="stHorizontalBlock"] {
   gap: 10px !important;
+  align-items: center !important;
 }
 
-.st-key-dock_nav [class*="st-key-dock_btn_"] button {
+.st-key-bottom_dock div[data-testid="stColumn"] {
+  display: flex;
+  justify-content: center;
+}
+
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button {
   width: 52px !important;
   height: 52px !important;
   border-radius: 14px !important;
@@ -577,14 +581,14 @@ div[data-testid="stProgressBar"] > div > div {
   transition: all 0.2s ease;
 }
 
-.st-key-dock_nav [class*="st-key-dock_btn_"] button:hover {
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button:hover {
   border-color: #6ea2e4 !important;
   background: #19335d !important;
   transform: translateY(-1px);
 }
 
-.st-key-dock_nav [class*="st-key-dock_btn_"] button:focus,
-.st-key-dock_nav [class*="st-key-dock_btn_"] button:focus-visible {
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button:focus,
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button:focus-visible {
   outline: 2px solid #8dc4ff !important;
   outline-offset: 2px !important;
 }
@@ -599,8 +603,7 @@ div[data-testid="stProgressBar"] > div > div {
 
 
 def render_bottom_nav():
-    st.markdown('<div class="bottom-nav-wrap"><div>', unsafe_allow_html=True)
-    with st.container(key="dock_nav"):
+    with st.container(key="bottom_dock"):
         c1, c2, c3, c4 = st.columns(4, gap="small")
         with c1:
             if st.button("🏠", key="dock_btn_home", use_container_width=True, help="Home"):
@@ -618,7 +621,6 @@ def render_bottom_nav():
             if st.button("🗓️", key="dock_btn_planner", use_container_width=True, help="Planner"):
                 st.session_state.app_section = "planner"
                 st.rerun()
-    st.markdown("</div></div>", unsafe_allow_html=True)
 
 
 def render_home_chat_panel():
