@@ -4,6 +4,7 @@ import streamlit as st
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import re
+import time
 
 
 class DatabaseManager:
@@ -44,7 +45,10 @@ class LineaManager:
         self.db = db_manager
         self._init_schema()
         self._use_sched = False
-        self._refresh_source_mode()
+        self._last_source_check = 0.0
+        self._sched_runtime_seeded = False
+        self._sched_line_id_map = {}
+        self._refresh_source_mode(force=True)
 
     def _table_exists(self, table_name: str) -> bool:
         res = self.db.execute(
@@ -59,7 +63,12 @@ class LineaManager:
         )
         return bool(res and res[0]["ok"])
 
-    def _refresh_source_mode(self):
+    def _refresh_source_mode(self, force: bool = False):
+        now = time.monotonic()
+        if not force and (now - self._last_source_check) < 20.0:
+            return
+        self._last_source_check = now
+
         has_sched_lines = self._table_exists("sched_lines")
         if not has_sched_lines:
             self._use_sched = False
@@ -68,8 +77,11 @@ class LineaManager:
         cnt = self.db.execute("SELECT COUNT(*) AS c FROM public.sched_lines")
         sched_count = int(cnt[0]["c"]) if cnt else 0
         self._use_sched = sched_count > 0
-        if self._use_sched:
+        if self._use_sched and not self._sched_runtime_seeded:
             self._ensure_sched_runtime_rows()
+            self._sched_runtime_seeded = True
+        if self._use_sched and not self._sched_line_id_map:
+            self._warm_sched_line_id_map(force=True)
 
     def _extract_line_number(self, line_id: str) -> int:
         m = re.findall(r"\d+", str(line_id or ""))
@@ -78,33 +90,33 @@ class LineaManager:
         return int(m[-1])
 
     def _resolve_sched_line_id(self, linea_id: int) -> str | None:
-        rows = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
-        if not rows:
-            return None
+        self._warm_sched_line_id_map()
         target = int(linea_id)
-        exact = None
+        return self._sched_line_id_map.get(target)
+
+    def _warm_sched_line_id_map(self, force: bool = False):
+        if self._sched_line_id_map and not force:
+            return
+        rows = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
+        mapped = {}
         for r in rows:
             lid = str(r["line_id"])
-            if self._extract_line_number(lid) == target:
-                exact = lid
-                break
-        return exact
+            n = self._extract_line_number(lid)
+            if n > 0 and n not in mapped:
+                mapped[n] = lid
+        self._sched_line_id_map = mapped
 
     def _ensure_sched_runtime_rows(self):
         if not self._table_exists("sched_line_runtime"):
             return
-        lines = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
-        for row in lines:
-            lid = str(row["line_id"])
-            default_name = f"Linea {lid}"
-            self.db.execute(
-                """
-                INSERT INTO public.sched_line_runtime(line_id, nome, vincoli)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (line_id) DO NOTHING
-                """,
-                (lid, default_name, ""),
-            )
+        self.db.execute(
+            """
+            INSERT INTO public.sched_line_runtime(line_id, nome, vincoli)
+            SELECT l.line_id, ('Linea ' || l.line_id), ''
+            FROM public.sched_lines l
+            ON CONFLICT (line_id) DO NOTHING
+            """
+        )
 
     #
     # SCHEMA / SETUP
@@ -569,8 +581,9 @@ class OrdineManager:
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
         self._use_sched = False
+        self._last_source_check = 0.0
         self.init_orders()
-        self._refresh_source_mode()
+        self._refresh_source_mode(force=True)
 
     def _table_exists(self, table_name: str) -> bool:
         res = self.db.execute(
@@ -585,7 +598,11 @@ class OrdineManager:
         )
         return bool(res and res[0]["ok"])
 
-    def _refresh_source_mode(self):
+    def _refresh_source_mode(self, force: bool = False):
+        now = time.monotonic()
+        if not force and (now - self._last_source_check) < 20.0:
+            return
+        self._last_source_check = now
         self._use_sched = self._table_exists("sched_orders")
 
     def _parse_due_date(self, deadline) -> date:
