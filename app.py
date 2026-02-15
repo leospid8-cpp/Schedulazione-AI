@@ -698,7 +698,7 @@ div.stButton > button:hover {
 
 def render_bottom_nav():
     with st.container(key="bottom_dock", horizontal=True, horizontal_alignment="center", gap="small"):
-        if st.button("🤖", key="dock_btn_home", help="Home"):
+        if st.button("💬", key="dock_btn_home", help="Home"):
             st.session_state.app_section = "home"
             st.rerun()
         if st.button("🏭", key="dock_btn_scada", help="SCADA"):
