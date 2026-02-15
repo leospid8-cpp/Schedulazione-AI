@@ -93,7 +93,7 @@ if "selected_linea_id" not in st.session_state:
 if "app_section" not in st.session_state:
     st.session_state.app_section = "home"  # home | scada | graphs | planner | linea_detail
 if "app_nav_choice" not in st.session_state:
-    st.session_state.app_nav_choice = "Home"
+    st.session_state.app_nav_choice = "🏠"
 
 
 #
@@ -102,7 +102,7 @@ if "app_nav_choice" not in st.session_state:
 def goto_home():
     st.session_state.page = "home"
     st.session_state.app_section = "home"
-    st.session_state.app_nav_choice = "Home"
+    st.session_state.app_nav_choice = "🏠"
     st.rerun()
 
 
@@ -110,7 +110,7 @@ def goto_linea(linea_id: int):
     st.session_state.page = "linea"
     st.session_state.selected_linea_id = int(linea_id)
     st.session_state.app_section = "linea_detail"
-    st.session_state.app_nav_choice = "SCADA"
+    st.session_state.app_nav_choice = "🏭"
     st.rerun()
 
 
@@ -545,31 +545,56 @@ div[data-testid="stProgressBar"] > div > div {
 .bottom-nav-wrap {
   position: sticky;
   bottom: 0;
-  background: rgba(255,255,255,0.97);
-  border: 1px solid var(--stroke);
-  border-radius: 14px;
-  padding: 10px 10px 4px 10px;
-  backdrop-filter: blur(7px);
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+  padding-bottom: 6px;
+}
+
+.bottom-nav-wrap > div {
+  background: rgba(11, 20, 38, 0.92);
+  border: 1px solid #1f3354;
+  border-radius: 22px;
+  padding: 8px 10px;
+  box-shadow: 0 12px 28px rgba(8, 16, 32, 0.35);
+  backdrop-filter: blur(10px);
 }
 
 .bottom-nav-wrap div[role="radiogroup"] {
-  gap: 8px;
+  gap: 10px;
 }
 
-.bottom-nav-wrap div[role="radiogroup"] label {
-  background: var(--soft);
-  border: 1px solid var(--stroke);
+.bottom-nav-wrap div[role="radiogroup"] > label {
+  width: 48px;
+  height: 48px;
   border-radius: 999px;
-  padding: 2px 12px;
+  border: 1px solid #2a446f;
+  background: #142849;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 !important;
+  padding: 0 !important;
+  transition: all 0.2s ease;
 }
 
-.bottom-nav-wrap div[role="radiogroup"] label p {
-  color: var(--ink) !important;
-  font-weight: 700 !important;
+.bottom-nav-wrap div[role="radiogroup"] > label:hover {
+  border-color: #4f79b3;
+  transform: translateY(-1px);
 }
 
-.bottom-nav-wrap input[type="radio"] {
-  accent-color: var(--accent);
+.bottom-nav-wrap div[role="radiogroup"] > label p {
+  font-size: 1.08rem !important;
+  line-height: 1 !important;
+  color: #dbe8ff !important;
+  margin: 0 !important;
+}
+
+.bottom-nav-wrap div[role="radiogroup"] > label:has(input:checked) {
+  background: linear-gradient(145deg, #0f67c9, #0a7aa2);
+  border-color: #7bb8ff;
+  box-shadow: 0 0 0 3px rgba(102, 179, 255, 0.22);
 }
 </style>
         """,
@@ -578,36 +603,36 @@ div[data-testid="stProgressBar"] > div > div {
 
 
 def render_bottom_nav():
-    st.markdown('<div class="bottom-nav-wrap">', unsafe_allow_html=True)
-    labels = ["Home", "SCADA", "Grafici", "Planner"]
-    section_to_label = {
-        "home": "Home",
-        "scada": "SCADA",
-        "graphs": "Grafici",
-        "planner": "Planner",
-        "linea_detail": "SCADA",
+    icons = ["🏠", "🏭", "📈", "🗓️"]
+    section_to_icon = {
+        "home": "🏠",
+        "scada": "🏭",
+        "graphs": "📈",
+        "planner": "🗓️",
+        "linea_detail": "🏭",
     }
-    label_to_section = {
-        "Home": "home",
-        "SCADA": "scada",
-        "Grafici": "graphs",
-        "Planner": "planner",
+    icon_to_section = {
+        "🏠": "home",
+        "🏭": "scada",
+        "📈": "graphs",
+        "🗓️": "planner",
     }
 
-    current_label = section_to_label.get(st.session_state.get("app_section", "home"), "Home")
-    if st.session_state.get("app_nav_choice") not in labels:
-        st.session_state.app_nav_choice = current_label
+    current_icon = section_to_icon.get(st.session_state.get("app_section", "home"), "🏠")
+    if st.session_state.get("app_nav_choice") not in icons:
+        st.session_state.app_nav_choice = current_icon
 
+    st.markdown('<div class="bottom-nav-wrap"><div>', unsafe_allow_html=True)
     chosen = st.radio(
-        "Navigation",
-        options=labels,
+        "Dock",
+        options=icons,
         key="app_nav_choice",
         horizontal=True,
         label_visibility="collapsed",
     )
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
-    new_section = label_to_section[chosen]
+    new_section = icon_to_section[chosen]
     if new_section != st.session_state.get("app_section"):
         st.session_state.app_section = new_section
         st.rerun()
