@@ -329,9 +329,9 @@ def produzione_df(linea_id: int, start_day: date, end_day: date) -> pd.DataFrame
     df_all = pd.DataFrame({"giorno": all_days})
 
     df = df_all.merge(df_prod, on="giorno", how="left").merge(df_tgt, on="giorno", how="left")
-    df["ok"] = df["ok"].fillna(0).astype(int)
-    df["ko"] = df["ko"].fillna(0).astype(int)
-    df["target_ok"] = df["target_ok"].fillna(0).astype(int)
+    df["ok"] = pd.to_numeric(df["ok"], errors="coerce").fillna(0).astype(int)
+    df["ko"] = pd.to_numeric(df["ko"], errors="coerce").fillna(0).astype(int)
+    df["target_ok"] = pd.to_numeric(df["target_ok"], errors="coerce").fillna(0).astype(int)
 
     return df
 
@@ -392,9 +392,21 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
     chart_df["start_min"] = pd.to_numeric(chart_df["start_min"], errors="coerce").fillna(0.0)
     chart_df["end_min"] = pd.to_numeric(chart_df["end_min"], errors="coerce").fillna(0.0)
 
+    def _slot_label(day_val, shift_val, fallback_min: float) -> str:
+        try:
+            if pd.notna(day_val) and pd.notna(shift_val):
+                d = int(float(day_val))
+                s = float(shift_val)
+                hh = int(s // 60)
+                mm = int(s % 60)
+                return f"G{d} {hh:02d}:{mm:02d}"
+        except Exception:
+            pass
+        return f"{float(fallback_min):.1f} min"
+
     if "start_day" in chart_df.columns and "start_shift_min" in chart_df.columns:
         chart_df["start_slot"] = chart_df.apply(
-            lambda r: f"G{int(float(r['start_day']))} {int(float(r['start_shift_min'])//60):02d}:{int(float(r['start_shift_min'])%60):02d}",
+            lambda r: _slot_label(r.get("start_day"), r.get("start_shift_min"), r.get("start_min", 0.0)),
             axis=1,
         )
     else:
@@ -402,7 +414,7 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
 
     if "end_day" in chart_df.columns and "end_shift_min" in chart_df.columns:
         chart_df["end_slot"] = chart_df.apply(
-            lambda r: f"G{int(float(r['end_day']))} {int(float(r['end_shift_min'])//60):02d}:{int(float(r['end_shift_min'])%60):02d}",
+            lambda r: _slot_label(r.get("end_day"), r.get("end_shift_min"), r.get("end_min", 0.0)),
             axis=1,
         )
     else:
@@ -868,7 +880,7 @@ def render_enterprise_home():
                         "Avanz. %": perc,
                     }
                 )
-            st.dataframe(pd.DataFrame(order_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(order_rows), width="stretch", hide_index=True)
 
 
 def _latest_planned_code_by_line(mgr):
@@ -922,7 +934,7 @@ def render_enterprise_scada():
 
     top_c1, top_c2 = st.columns([1, 5])
     with top_c1:
-        if st.button("Aggiorna", use_container_width=True, key="scada_refresh_btn"):
+        if st.button("Aggiorna", width="stretch", key="scada_refresh_btn"):
             st.rerun()
     with top_c2:
         st.caption(f"Linee visualizzate: {len(display_ids)}")
@@ -947,26 +959,26 @@ def render_enterprise_scada():
 
                     b1, b2 = st.columns(2)
                     with b1:
-                        if st.button("+10 OK", key=f"scada_ok_{live_line['id']}_{line_id}", use_container_width=True):
+                        if st.button("+10 OK", key=f"scada_ok_{live_line['id']}_{line_id}", width="stretch"):
                             st.session_state.linea_mgr.update_counts(live_line["id"], buoni=10)
                             st.rerun()
                     with b2:
-                        if st.button("+1 KO", key=f"scada_ko_{live_line['id']}_{line_id}", use_container_width=True):
+                        if st.button("+1 KO", key=f"scada_ko_{live_line['id']}_{line_id}", width="stretch"):
                             st.session_state.linea_mgr.update_counts(live_line["id"], scarti=1)
                             st.rerun()
 
                     b3, b4 = st.columns(2)
                     with b3:
                         if stato == "Attiva":
-                            if st.button("STOP", key=f"scada_stop_{live_line['id']}_{line_id}", use_container_width=True):
+                            if st.button("STOP", key=f"scada_stop_{live_line['id']}_{line_id}", width="stretch"):
                                 st.session_state.linea_mgr.set_stato(live_line["id"], "Ferma", "Manuale")
                                 st.rerun()
                         else:
-                            if st.button("START", key=f"scada_start_{live_line['id']}_{line_id}", use_container_width=True):
+                            if st.button("START", key=f"scada_start_{live_line['id']}_{line_id}", width="stretch"):
                                 st.session_state.linea_mgr.set_stato(live_line["id"], "Attiva", "")
                                 st.rerun()
                     with b4:
-                        if st.button("Dettaglio", key=f"scada_det_{live_line['id']}_{line_id}", use_container_width=True):
+                        if st.button("Dettaglio", key=f"scada_det_{live_line['id']}_{line_id}", width="stretch"):
                             goto_linea(live_line["id"])
                 else:
                     st.markdown(f"**{line_id} - Solo schedulazione**")
@@ -1045,7 +1057,7 @@ def render_enterprise_graphs():
         .properties(height=300)
         .interactive()
     )
-    st.altair_chart(ok_chart, use_container_width=True)
+    st.altair_chart(ok_chart, width="stretch")
 
     bar_df = pd.DataFrame(summary)
     bar_chart = (
@@ -1059,8 +1071,8 @@ def render_enterprise_graphs():
         )
         .properties(height=260)
     )
-    st.altair_chart(bar_chart, use_container_width=True)
-    st.dataframe(bar_df, use_container_width=True, hide_index=True)
+    st.altair_chart(bar_chart, width="stretch")
+    st.dataframe(bar_df, width="stretch", hide_index=True)
 
 
 def render_enterprise_planner():
@@ -1080,7 +1092,7 @@ def render_enterprise_planner():
             ["due_date", "min_setup", "balanced", "both", "all"],
             key="planner_strategy",
         )
-        if st.button("Genera nuovo piano", use_container_width=True, key="planner_run_btn"):
+        if st.button("Genera nuovo piano", width="stretch", key="planner_run_btn"):
             try:
                 res = mgr.run_scheduler(strategy=strategy)
                 run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
@@ -1090,7 +1102,11 @@ def render_enterprise_planner():
                 st.error(f"Errore planner: {e}")
     with c2:
         stats = mgr.get_input_stats()
-        cal = mgr.get_scheduler_calendar_config()
+        get_cal = getattr(mgr, "get_scheduler_calendar_config", None)
+        if callable(get_cal):
+            cal = get_cal()
+        else:
+            cal = {"shift_minutes": 480, "day_minutes": 1440, "shift_start_min": 0}
         st.write(
             f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
             f"Run: **{stats['sched_runs']}** | Task: **{stats['sched_tasks']}**"
@@ -1102,7 +1118,7 @@ def render_enterprise_planner():
     orders = mgr.get_scheduler_orders(limit=500)
     if orders:
         st.markdown('<div class="section-title">Backlog ordini</div>', unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(orders), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(orders), width="stretch", hide_index=True)
 
     runs = mgr.get_recent_runs(limit=50)
     if not runs:
@@ -1134,7 +1150,7 @@ def render_enterprise_planner():
     sched_lines = mgr.get_scheduler_lines()
     line_domain = [x["line_id"] for x in sched_lines] if sched_lines else None
 
-    st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), use_container_width=True)
+    st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), width="stretch")
 
     edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_min", "end_min", "due_date"]
     df_edit = df_tasks[edit_cols].copy()
@@ -1142,7 +1158,7 @@ def render_enterprise_planner():
 
     edited = st.data_editor(
         df_edit,
-        use_container_width=True,
+        width="stretch",
         num_rows="fixed",
         column_config={
             "line_id": st.column_config.SelectboxColumn("line_id", options=line_options),
@@ -1167,7 +1183,7 @@ def render_enterprise_planner():
         if not unscheduled:
             st.caption("Nessun ordine non schedulato.")
         else:
-            st.dataframe(pd.DataFrame(unscheduled), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(unscheduled), width="stretch", hide_index=True)
 
 
 def render_scheduler_section():
@@ -1188,7 +1204,7 @@ def render_scheduler_section():
             ["due_date", "min_setup", "balanced", "both", "all"],
             key="sched_strategy",
         )
-        if st.button("Esegui schedulazione", use_container_width=True):
+        if st.button("Esegui schedulazione", width="stretch"):
             try:
                 res = mgr.run_scheduler(strategy=strategy)
                 run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
@@ -1239,9 +1255,9 @@ def render_scheduler_section():
     df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()
     if not df_tasks.empty:
         line_domain = [r["line_id"] for r in all_sched_lines] if all_sched_lines else None
-        st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), use_container_width=True)
+        st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), width="stretch")
         with st.expander("Dettaglio task", expanded=False):
-            st.dataframe(df_tasks, use_container_width=True)
+            st.dataframe(df_tasks, width="stretch")
     else:
         st.caption("Nessun task per il run selezionato.")
 
@@ -1251,7 +1267,7 @@ def render_scheduler_section():
         if df_uns.empty:
             st.caption("Nessun ordine non schedulato.")
         else:
-            st.dataframe(df_uns, use_container_width=True)
+            st.dataframe(df_uns, width="stretch")
 
 
 #
@@ -1567,7 +1583,7 @@ def render_linea_detail(linea_id: int):
         k4.metric("Target nel range", "—")
 
     st.subheader("Produzione vs Obiettivo")
-    st.altair_chart(grafico_produzione(df), use_container_width=True)
+    st.altair_chart(grafico_produzione(df), width="stretch")
 
     st.divider()
 
@@ -1587,7 +1603,7 @@ def render_linea_detail(linea_id: int):
 
     # Tabella dettaglio
     st.subheader("📅 Dettaglio giornaliero")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
 
 #
