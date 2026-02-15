@@ -140,6 +140,34 @@ def esegui_azioni_ai(json_input: str) -> str:
                 st.session_state.linea_mgr.set_stato(lid, "Attiva", "")
                 log.append(f"▶️ Linea {lid} START")
 
+            elif cmd == "crea_ordine":
+                order_id = str(
+                    azione.get("order_id")
+                    or azione.get("codice")
+                    or azione.get("codice_ordine")
+                    or ""
+                ).strip()
+                code = str(
+                    azione.get("code")
+                    or azione.get("modello")
+                    or azione.get("product_code")
+                    or ""
+                ).strip()
+                qty_raw = azione.get("qty", azione.get("quantita", 0))
+                due_date = str(
+                    azione.get("due_date")
+                    or azione.get("deadline")
+                    or date.today().isoformat()
+                ).strip()
+
+                qty = int(float(qty_raw or 0))
+                if not order_id or not code or qty <= 0:
+                    log.append("❌ crea_ordine non valido: servono order_id, code e qty>0")
+                    continue
+
+                st.session_state.ordine_mgr.add_ordine(order_id, code, qty, due_date)
+                log.append(f"✅ Ordine creato: {order_id} | {code} | qta={qty} | scad={due_date}")
+
         return "\n".join(log) if log else "Nessuna azione."
     except Exception as e:
         return f"Errore nel comando AI: {e}"
@@ -828,7 +856,7 @@ ISTRUZIONI:
 1) Se chiedono INFO: rispondi a parole.
 2) Se chiedono AZIONI (schedula, sposta, ferma, avvia): genera SOLO JSON.
    Formato JSON: [{{"comando":"assegna_linea","linea_id":1,"codice_ordine":"ORD-01"}}]
-   Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id).
+   Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id), "crea_ordine" (order_id, code, qty, due_date YYYY-MM-DD).
 """
 
     with st.spinner("Analisi..."):
@@ -850,6 +878,8 @@ ISTRUZIONI:
                 e = answ.find("```", s)
                 json_found = answ[s:e].strip()
             elif answ.startswith("[") and answ.endswith("]"):
+                json_found = answ
+            elif answ.startswith("{") and answ.endswith("}"):
                 json_found = answ
 
             if json_found:
@@ -914,6 +944,26 @@ def render_enterprise_home():
                     }
                 )
             st.dataframe(pd.DataFrame(order_rows), width="stretch", hide_index=True)
+
+        st.markdown('<div class="section-title" style="margin-top:10px;">Nuovo ordine</div>', unsafe_allow_html=True)
+        with st.form("enterprise_new_order_form", clear_on_submit=True):
+            new_order_id = st.text_input("Order ID", placeholder="ORD_094")
+            new_code = st.text_input("Codice prodotto", placeholder="CD428")
+            new_qty = st.number_input("Quantita", min_value=1, max_value=1_000_000, value=10, step=1)
+            new_due = st.date_input("Scadenza", value=date.today())
+            submitted = st.form_submit_button("Crea ordine", width="stretch")
+            if submitted:
+                if not str(new_order_id).strip() or not str(new_code).strip():
+                    st.error("Compila almeno Order ID e Codice prodotto.")
+                else:
+                    st.session_state.ordine_mgr.add_ordine(
+                        str(new_order_id).strip(),
+                        str(new_code).strip(),
+                        int(new_qty),
+                        new_due.isoformat(),
+                    )
+                    st.success(f"Ordine creato: {new_order_id}")
+                    st.rerun()
 
 
 def _latest_planned_code_by_line(mgr):
@@ -1507,7 +1557,7 @@ ISTRUZIONI:
 1) Se chiedono INFO: rispondi a parole.
 2) Se chiedono AZIONI (schedula, sposta, ferma, avvia): genera SOLO JSON.
    Formato JSON: [{{"comando":"assegna_linea","linea_id":1,"codice_ordine":"ORD-01"}}]
-   Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id).
+   Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id), "crea_ordine" (order_id, code, qty, due_date YYYY-MM-DD).
                 """
 
                 with st.spinner("Analisi..."):
@@ -1529,6 +1579,8 @@ ISTRUZIONI:
                             e = answ.find("```", s)
                             json_found = answ[s:e].strip()
                         elif answ.startswith("[") and answ.endswith("]"):
+                            json_found = answ
+                        elif answ.startswith("{") and answ.endswith("}"):
                             json_found = answ
 
                         if json_found:
