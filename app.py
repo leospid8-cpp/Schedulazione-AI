@@ -93,13 +93,6 @@ if "selected_linea_id" not in st.session_state:
 if "app_section" not in st.session_state:
     st.session_state.app_section = "home"  # home | scada | graphs | planner | linea_detail
 
-valid_sections = {"home", "scada", "graphs", "planner"}
-qp_section = st.query_params.get("section")
-if isinstance(qp_section, list):
-    qp_section = qp_section[0] if qp_section else None
-if qp_section in valid_sections:
-    st.session_state.app_section = qp_section
-
 
 #
 # funzioni utili
@@ -107,7 +100,6 @@ if qp_section in valid_sections:
 def goto_home():
     st.session_state.page = "home"
     st.session_state.app_section = "home"
-    st.query_params["section"] = "home"
     st.rerun()
 
 
@@ -115,7 +107,6 @@ def goto_linea(linea_id: int):
     st.session_state.page = "linea"
     st.session_state.selected_linea_id = int(linea_id)
     st.session_state.app_section = "linea_detail"
-    st.query_params["section"] = "scada"
     st.rerun()
 
 
@@ -547,57 +538,57 @@ div[data-testid="stProgressBar"] > div > div {
   background-color: var(--accent) !important;
 }
 
-.bottom-nav-wrap {
+.st-key-bottom_dock {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
   bottom: 8px;
   z-index: 9999;
   width: min(368px, calc(100vw - 24px));
-  display: flex;
-  justify-content: center;
-}
-
-.bottom-nav-shell {
-  width: 100%;
   background: rgba(11, 20, 38, 0.92);
   border: 1px solid #1f3354;
   border-radius: 16px;
   padding: 6px 8px;
   box-shadow: 0 12px 28px rgba(8, 16, 32, 0.35);
   backdrop-filter: blur(10px);
-  display: flex;
-  flex-wrap: nowrap;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
 }
 
-.bottom-nav-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 11px;
-  border: 1px solid #2b4a78;
-  background: #122647;
+.st-key-bottom_dock > div {
+  padding: 0 !important;
+}
+
+.st-key-bottom_dock div[data-testid="stHorizontalBlock"] {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.st-key-bottom_dock div[data-testid="stButton"] {
+  margin: 0 !important;
+}
+
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button {
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 11px !important;
+  border: 1px solid #2b4a78 !important;
+  background: #122647 !important;
   color: #e8f2ff !important;
-  text-decoration: none !important;
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 1.52rem;
-  line-height: 1;
+  padding: 0 !important;
+  display: inline-flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  font-size: 1.52rem !important;
+  line-height: 1 !important;
   transition: all 0.2s ease;
 }
 
-.bottom-nav-btn:hover {
-  border-color: #6ea2e4;
-  background: #19335d;
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button:hover {
+  border-color: #6ea2e4 !important;
+  background: #19335d !important;
   transform: translateY(-1px);
-}
-
-.bottom-nav-btn.active {
-  border-color: #8dc4ff;
-  box-shadow: 0 0 0 2px rgba(141, 196, 255, 0.25);
 }
 
 .block-container {
@@ -610,26 +601,19 @@ div[data-testid="stProgressBar"] > div > div {
 
 
 def render_bottom_nav():
-    current = st.session_state.get("app_section", "home")
-    if current == "linea_detail":
-        current = "scada"
-
-    items = [
-        ("home", "⌂", "Home"),
-        ("scada", "⚙", "SCADA"),
-        ("graphs", "≈", "Grafici"),
-        ("planner", "▦", "Planner"),
-    ]
-
-    links = []
-    for section, icon, label in items:
-        active = " active" if current == section else ""
-        links.append(
-            f'<a class="bottom-nav-btn{active}" href="?section={section}" title="{label}" aria-label="{label}">{icon}</a>'
-        )
-
-    html = f'<div class="bottom-nav-wrap"><div class="bottom-nav-shell">{"".join(links)}</div></div>'
-    st.markdown(html, unsafe_allow_html=True)
+    with st.container(key="bottom_dock", horizontal=True, horizontal_alignment="center", gap="small"):
+        if st.button("🏠", key="dock_btn_home", help="Home"):
+            st.session_state.app_section = "home"
+            st.rerun()
+        if st.button("🏭", key="dock_btn_scada", help="SCADA"):
+            st.session_state.app_section = "scada"
+            st.rerun()
+        if st.button("📈", key="dock_btn_graphs", help="Grafici"):
+            st.session_state.app_section = "graphs"
+            st.rerun()
+        if st.button("🗓️", key="dock_btn_planner", help="Planner"):
+            st.session_state.app_section = "planner"
+            st.rerun()
 
 
 def render_home_chat_panel():
