@@ -1,8 +1,9 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import streamlit as st
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+import re
 
 
 class DatabaseManager:
@@ -42,6 +43,68 @@ class LineaManager:
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
         self._init_schema()
+        self._use_sched = False
+        self._refresh_source_mode()
+
+    def _table_exists(self, table_name: str) -> bool:
+        res = self.db.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.tables
+              WHERE table_schema='public' AND table_name=%s
+            ) AS ok
+            """,
+            (table_name,),
+        )
+        return bool(res and res[0]["ok"])
+
+    def _refresh_source_mode(self):
+        has_sched_lines = self._table_exists("sched_lines")
+        if not has_sched_lines:
+            self._use_sched = False
+            return
+
+        cnt = self.db.execute("SELECT COUNT(*) AS c FROM public.sched_lines")
+        sched_count = int(cnt[0]["c"]) if cnt else 0
+        self._use_sched = sched_count > 0
+        if self._use_sched:
+            self._ensure_sched_runtime_rows()
+
+    def _extract_line_number(self, line_id: str) -> int:
+        m = re.findall(r"\d+", str(line_id or ""))
+        if not m:
+            return 0
+        return int(m[-1])
+
+    def _resolve_sched_line_id(self, linea_id: int) -> str | None:
+        rows = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
+        if not rows:
+            return None
+        target = int(linea_id)
+        exact = None
+        for r in rows:
+            lid = str(r["line_id"])
+            if self._extract_line_number(lid) == target:
+                exact = lid
+                break
+        return exact
+
+    def _ensure_sched_runtime_rows(self):
+        if not self._table_exists("sched_line_runtime"):
+            return
+        lines = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
+        for row in lines:
+            lid = str(row["line_id"])
+            default_name = f"Linea {lid}"
+            self.db.execute(
+                """
+                INSERT INTO public.sched_line_runtime(line_id, nome, vincoli)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (line_id) DO NOTHING
+                """,
+                (lid, default_name, ""),
+            )
 
     #
     # SCHEMA / SETUP
@@ -87,6 +150,42 @@ class LineaManager:
             );
         """)
 
+        # Nuovo schema runtime su sched_* (attivo quando sched_lines esiste e contiene righe)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS public.sched_line_runtime (
+                line_id TEXT PRIMARY KEY REFERENCES public.sched_lines(line_id) ON DELETE CASCADE,
+                nome TEXT,
+                vincoli TEXT DEFAULT '',
+                stato TEXT DEFAULT 'Attiva',
+                motivo_fermo TEXT DEFAULT '',
+                pezzi_fatti BIGINT DEFAULT 0,
+                pezzi_scarti BIGINT DEFAULT 0,
+                target_assegnato TEXT DEFAULT ''
+            );
+        """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS public.sched_production_events (
+                id BIGSERIAL PRIMARY KEY,
+                ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+                line_id TEXT NOT NULL REFERENCES public.sched_lines(line_id) ON DELETE CASCADE,
+                order_id TEXT DEFAULT '',
+                tipo TEXT NOT NULL CHECK (tipo IN ('OK','KO','START','STOP')),
+                qta INTEGER NOT NULL DEFAULT 1
+            );
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sched_prod_events_line_ts
+            ON public.sched_production_events(line_id, ts);
+        """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS public.sched_line_targets (
+                giorno DATE NOT NULL,
+                line_id TEXT NOT NULL REFERENCES public.sched_lines(line_id) ON DELETE CASCADE,
+                target_ok INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (giorno, line_id)
+            );
+        """)
+
         # Popola linee se vuota
         if not self.db.execute("SELECT 1 FROM linee_produttive LIMIT 1"):
             lines_setup = [
@@ -106,9 +205,52 @@ class LineaManager:
     # LETTURA STATO
     #
     def get_status(self):
+        self._refresh_source_mode()
+        if self._use_sched:
+            rows = self.db.execute(
+                """
+                SELECT
+                  l.line_id,
+                  COALESCE(r.nome, '') AS nome,
+                  COALESCE(r.vincoli, '') AS vincoli,
+                  COALESCE(r.stato, 'Attiva') AS stato,
+                  COALESCE(r.motivo_fermo, '') AS motivo_fermo,
+                  COALESCE(r.pezzi_fatti, 0) AS pezzi_fatti,
+                  COALESCE(r.pezzi_scarti, 0) AS pezzi_scarti,
+                  COALESCE(r.target_assegnato, '') AS target_assegnato
+                FROM public.sched_lines l
+                LEFT JOIN public.sched_line_runtime r ON r.line_id = l.line_id
+                ORDER BY l.line_id
+                """
+            )
+            out = []
+            for idx, r in enumerate(rows, start=1):
+                line_id = str(r["line_id"])
+                n = self._extract_line_number(line_id)
+                out.append(
+                    {
+                        "id": n if n > 0 else idx,
+                        "line_id": line_id,
+                        "nome": r["nome"] if r["nome"] else f"Linea {line_id}",
+                        "vincoli": r["vincoli"] or "",
+                        "stato": r["stato"] or "Attiva",
+                        "motivo_fermo": r["motivo_fermo"] or "",
+                        "pezzi_fatti": int(r["pezzi_fatti"] or 0),
+                        "pezzi_scarti": int(r["pezzi_scarti"] or 0),
+                        "target_assegnato": r["target_assegnato"] or "",
+                    }
+                )
+            return out
         return self.db.execute("SELECT * FROM linee_produttive ORDER BY id")
 
     def get_linea(self, linea_id: int):
+        self._refresh_source_mode()
+        if self._use_sched:
+            target = int(linea_id)
+            for row in self.get_status():
+                if int(row["id"]) == target:
+                    return row
+            return None
         res = self.db.execute("SELECT * FROM linee_produttive WHERE id=%s", (linea_id,))
         return res[0] if res else None
 
@@ -116,6 +258,24 @@ class LineaManager:
     # SCRITTURE (con storico)
     #
     def _log_evento(self, linea_id: int, tipo: str, qta: int = 1):
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return
+            self.db.execute(
+                """
+                INSERT INTO public.sched_production_events(line_id, order_id, tipo, qta)
+                VALUES (
+                    %s,
+                    COALESCE((SELECT target_assegnato FROM public.sched_line_runtime WHERE line_id=%s), ''),
+                    %s,
+                    %s
+                )
+                """,
+                (lid, lid, tipo, qta),
+            )
+            return
         # Lega l'evento all'ordine attuale (se presente)
         self.db.execute("""
             INSERT INTO produzione_eventi(linea_id, ordine_codice, tipo, qta)
@@ -134,6 +294,54 @@ class LineaManager:
         - contatori live (linee_produttive)
         - storico (produzione_eventi)
         """
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return
+            if buoni > 0:
+                self.db.execute(
+                    """
+                    INSERT INTO public.sched_production_events(line_id, order_id, tipo, qta)
+                    VALUES (
+                        %s,
+                        COALESCE((SELECT target_assegnato FROM public.sched_line_runtime WHERE line_id=%s), ''),
+                        'OK',
+                        %s
+                    )
+                    """,
+                    (lid, lid, buoni),
+                )
+                self.db.execute(
+                    """
+                    UPDATE public.sched_line_runtime
+                    SET pezzi_fatti = COALESCE(pezzi_fatti, 0) + %s
+                    WHERE line_id = %s
+                    """,
+                    (buoni, lid),
+                )
+            if scarti > 0:
+                self.db.execute(
+                    """
+                    INSERT INTO public.sched_production_events(line_id, order_id, tipo, qta)
+                    VALUES (
+                        %s,
+                        COALESCE((SELECT target_assegnato FROM public.sched_line_runtime WHERE line_id=%s), ''),
+                        'KO',
+                        %s
+                    )
+                    """,
+                    (lid, lid, scarti),
+                )
+                self.db.execute(
+                    """
+                    UPDATE public.sched_line_runtime
+                    SET pezzi_scarti = COALESCE(pezzi_scarti, 0) + %s
+                    WHERE line_id = %s
+                    """,
+                    (scarti, lid),
+                )
+            return
         if buoni > 0:
             self.db.execute("""
                 WITH ins AS (
@@ -170,6 +378,36 @@ class LineaManager:
         """
         Start/Stop con log eventi.
         """
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return
+            current = self.db.execute(
+                "SELECT stato FROM public.sched_line_runtime WHERE line_id=%s",
+                (lid,),
+            )
+            old = current[0]["stato"] if current else None
+            self.db.execute(
+                """
+                UPDATE public.sched_line_runtime
+                SET stato=%s, motivo_fermo=%s
+                WHERE line_id=%s
+                """,
+                (stato, motivo, lid),
+            )
+            if old and old != stato:
+                if stato == "Attiva":
+                    self.db.execute(
+                        "INSERT INTO public.sched_production_events(line_id, order_id, tipo, qta) VALUES (%s, '', 'START', 1)",
+                        (lid,),
+                    )
+                elif stato == "Ferma":
+                    self.db.execute(
+                        "INSERT INTO public.sched_production_events(line_id, order_id, tipo, qta) VALUES (%s, '', 'STOP', 1)",
+                        (lid,),
+                    )
+            return
         current = self.get_linea(linea_id)
         old = current["stato"] if current else None
 
@@ -186,6 +424,16 @@ class LineaManager:
                 self._log_evento(linea_id, "STOP", 1)
 
     def assegna_commessa(self, linea_id: int, codice_commessa: str):
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return
+            self.db.execute(
+                "UPDATE public.sched_line_runtime SET target_assegnato=%s WHERE line_id=%s",
+                (codice_commessa, lid),
+            )
+            return
         self.db.execute(
             "UPDATE linee_produttive SET target_assegnato=%s WHERE id=%s",
             (codice_commessa, linea_id),
@@ -195,6 +443,16 @@ class LineaManager:
     # KPI (HOME)
     #
     def get_produzione_per_ordine(self):
+        self._refresh_source_mode()
+        if self._use_sched:
+            sql = """
+                SELECT target_assegnato, SUM(pezzi_fatti) as tot
+                FROM public.sched_line_runtime
+                WHERE target_assegnato != ''
+                GROUP BY target_assegnato
+            """
+            res = self.db.execute(sql)
+            return {r["target_assegnato"]: int(r["tot"] or 0) for r in res}
         # Manteniamo la tua logica attuale (somma per ordine sulle linee)
         # perché il progetto usa ancora i contatori "live".
         sql = """
@@ -207,6 +465,10 @@ class LineaManager:
         return {r["target_assegnato"]: r["tot"] for r in res}
 
     def get_totale_produzione(self):
+        self._refresh_source_mode()
+        if self._use_sched:
+            res = self.db.execute("SELECT SUM(pezzi_fatti) as tot FROM public.sched_line_runtime")
+            return int(res[0]["tot"]) if res and res[0]["tot"] else 0
         res = self.db.execute("SELECT SUM(pezzi_fatti) as tot FROM linee_produttive")
         return res[0]["tot"] if res and res[0]["tot"] else 0
 
@@ -219,6 +481,23 @@ class LineaManager:
         {giorno, ok, ko}
         Raggruppata per giorno (Europe/Rome).
         """
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return []
+            sql = """
+                SELECT
+                  (ts AT TIME ZONE 'Europe/Rome')::date AS giorno,
+                  SUM(CASE WHEN tipo='OK' THEN qta ELSE 0 END) AS ok,
+                  SUM(CASE WHEN tipo='KO' THEN qta ELSE 0 END) AS ko
+                FROM public.sched_production_events
+                WHERE line_id = %s
+                  AND (ts AT TIME ZONE 'Europe/Rome')::date BETWEEN %s AND %s
+                GROUP BY 1
+                ORDER BY 1
+            """
+            return self.db.execute(sql, (lid, start_day, end_day))
         sql = """
             SELECT
               (ts AT TIME ZONE 'Europe/Rome')::date AS giorno,
@@ -233,6 +512,18 @@ class LineaManager:
         return self.db.execute(sql, (linea_id, start_day, end_day))
 
     def get_obiettivi_giornalieri(self, linea_id: int, start_day: date, end_day: date):
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return []
+            sql = """
+                SELECT giorno, target_ok
+                FROM public.sched_line_targets
+                WHERE line_id = %s AND giorno BETWEEN %s AND %s
+                ORDER BY giorno
+            """
+            return self.db.execute(sql, (lid, start_day, end_day))
         sql = """
             SELECT giorno, target_ok
             FROM obiettivi_linea_giorno
@@ -245,6 +536,24 @@ class LineaManager:
         """
         Imposta lo stesso target_ok per ogni giorno nel range (UPSERT).
         """
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return
+            giorno = start_day
+            while giorno <= end_day:
+                self.db.execute(
+                    """
+                    INSERT INTO public.sched_line_targets(giorno, line_id, target_ok)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (giorno, line_id)
+                    DO UPDATE SET target_ok = EXCLUDED.target_ok
+                    """,
+                    (giorno, lid, target_ok),
+                )
+                giorno += timedelta(days=1)
+            return
         giorno = start_day
         while giorno <= end_day:
             self.db.execute("""
@@ -259,7 +568,47 @@ class LineaManager:
 class OrdineManager:
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
+        self._use_sched = False
         self.init_orders()
+        self._refresh_source_mode()
+
+    def _table_exists(self, table_name: str) -> bool:
+        res = self.db.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.tables
+              WHERE table_schema='public' AND table_name=%s
+            ) AS ok
+            """,
+            (table_name,),
+        )
+        return bool(res and res[0]["ok"])
+
+    def _refresh_source_mode(self):
+        self._use_sched = self._table_exists("sched_orders")
+
+    def _parse_due_date(self, deadline) -> date:
+        if isinstance(deadline, date):
+            return deadline
+        raw = str(deadline or "").strip()
+        if not raw:
+            return date.today()
+        try:
+            return date.fromisoformat(raw)
+        except Exception:
+            pass
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except Exception:
+                pass
+        if "T" in raw:
+            try:
+                return date.fromisoformat(raw.split("T", 1)[0])
+            except Exception:
+                pass
+        return date.today()
 
     def init_orders(self):
         self.db.execute("""
@@ -272,12 +621,56 @@ class OrdineManager:
         """)
 
     def add_ordine(self, codice: str, modello: str, quantita: int, deadline: str):
+        self._refresh_source_mode()
+        if self._use_sched:
+            due_date = self._parse_due_date(deadline)
+            self.db.execute(
+                """
+                INSERT INTO public.sched_orders(order_id, code, qty, due_date, due_serial)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (order_id)
+                DO UPDATE SET
+                  code = EXCLUDED.code,
+                  qty = EXCLUDED.qty,
+                  due_date = EXCLUDED.due_date,
+                  due_serial = EXCLUDED.due_serial
+                """,
+                (codice, modello, int(quantita), due_date, int(due_date.toordinal())),
+            )
+            return
         self.db.execute(
             "INSERT INTO ordini_produzione (codice, modello, quantita, deadline) VALUES (%s, %s, %s, %s)",
             (codice, modello, quantita, deadline),
         )
 
     def get_ordini(self):
+        self._refresh_source_mode()
+        if self._use_sched:
+            rows = self.db.execute(
+                """
+                SELECT order_id, code, qty, due_date, due_serial
+                FROM public.sched_orders
+                ORDER BY due_serial NULLS LAST, order_id
+                """
+            )
+            out = []
+            for r in rows:
+                due = r.get("due_date")
+                due_txt = due.isoformat() if due else ""
+                out.append(
+                    {
+                        "codice": r["order_id"],
+                        "modello": r.get("code") or "",
+                        "quantita": int(r.get("qty") or 0),
+                        "deadline": due_txt,
+                        "order_id": r["order_id"],
+                        "code": r.get("code") or "",
+                        "qty": int(r.get("qty") or 0),
+                        "due_date": due_txt,
+                        "due_serial": int(r.get("due_serial") or 0),
+                    }
+                )
+            return out
         return self.db.execute("SELECT * FROM ordini_produzione")
 
     def get_ordini_text(self):
@@ -287,6 +680,21 @@ class OrdineManager:
         return "\n".join([f"- {o['codice']}: {o['quantita']}x {o['modello']} (Deadline: {o['deadline']})" for o in data])
 
     def reset_giornata(self):
+        self._refresh_source_mode()
+        if self._use_sched:
+            # In modalita sched_* resettiamo solo la telemetria live.
+            # Gli ordini master rimangono nel DB di pianificazione.
+            self.db.execute(
+                """
+                UPDATE public.sched_line_runtime
+                SET pezzi_fatti=0,
+                    pezzi_scarti=0,
+                    stato='Attiva',
+                    motivo_fermo='',
+                    target_assegnato=''
+                """
+            )
+            return
         self.db.execute("DELETE FROM ordini_produzione")
         self.db.execute("""
             UPDATE linee_produttive
@@ -294,6 +702,10 @@ class OrdineManager:
         """)
 
     def get_totale_target(self):
+        self._refresh_source_mode()
+        if self._use_sched:
+            res = self.db.execute("SELECT SUM(qty) as tot FROM public.sched_orders")
+            return int(res[0]["tot"]) if res and res[0]["tot"] else 0
         res = self.db.execute("SELECT SUM(quantita) as tot FROM ordini_produzione")
         return res[0]["tot"] if res and res[0]["tot"] else 0
 

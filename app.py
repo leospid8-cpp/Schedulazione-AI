@@ -941,7 +941,7 @@ def render_enterprise_scada():
                     m1, m2 = st.columns(2)
                     m1.metric("Stato", "n/d")
                     m2.metric("Produzione", "n/d")
-                    st.caption("Per controlli live collega questa linea a linee_produttive.")
+                    st.caption("Per controlli live attiva la telemetria runtime su sched_line_runtime.")
 
 
 def render_enterprise_graphs():
