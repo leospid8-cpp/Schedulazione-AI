@@ -431,9 +431,9 @@ def apply_enterprise_theme():
 :root {
   --bg-1: #eff5fb;
   --bg-2: #eef7f2;
-  --panel: #ffffff;
-  --ink: #0c1a2f;
-  --muted: #55657b;
+  --panel: rgba(14, 30, 56, 0.78);
+  --ink: #eaf2ff;
+  --muted: #b7c7de;
   --accent: #0a67d0;
   --accent-2: #05a58a;
   --danger: #bf3b3b;
@@ -452,7 +452,7 @@ html, body, [class*="css"] {
   background:
     radial-gradient(1200px 560px at -8% -10%, rgba(69, 143, 255, 0.16), transparent 62%),
     radial-gradient(980px 480px at 112% 0%, rgba(8, 189, 157, 0.14), transparent 60%),
-    linear-gradient(145deg, var(--bg-1), var(--bg-2));
+    linear-gradient(145deg, #081428, #071327) !important;
   color: var(--ink) !important;
   overflow-x: clip;
 }
@@ -517,7 +517,7 @@ html, body, [class*="css"] {
 }
 
 .stApp p, .stApp li, .stApp label, .stApp span, .stApp small, .stApp div {
-  color: inherit;
+  color: var(--ink) !important;
 }
 
 .stApp a {
@@ -525,7 +525,7 @@ html, body, [class*="css"] {
 }
 
 .card-kpi {
-  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.88));
+  background: linear-gradient(180deg, rgba(18, 38, 70, 0.92), rgba(15, 31, 58, 0.88));
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 14px 16px;
@@ -552,7 +552,7 @@ html, body, [class*="css"] {
 }
 
 div[data-testid="stMetric"] {
-  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.90));
+  background: linear-gradient(180deg, rgba(16, 34, 64, 0.92), rgba(13, 27, 51, 0.88));
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 8px 10px;
@@ -578,7 +578,7 @@ div[data-testid="stMarkdownContainer"] span {
 }
 
 div[data-testid="stChatMessage"] {
-  background: rgba(255,255,255,0.82);
+  background: rgba(16, 33, 60, 0.84);
   border: 1px solid var(--stroke);
   border-radius: 14px;
   backdrop-filter: blur(3px);
@@ -593,7 +593,7 @@ div[data-testid="stChatMessageContent"] * {
 div[data-testid="stChatInput"] textarea,
 div[data-testid="stChatInput"] input {
   color: var(--ink) !important;
-  background: rgba(255,255,255,0.92) !important;
+  background: rgba(12, 28, 52, 0.9) !important;
   border: 1px solid var(--stroke) !important;
   border-radius: 14px !important;
 }
@@ -623,7 +623,7 @@ div[data-testid="stProgressBar"] > div > div {
 div.stButton > button {
   border-radius: 12px !important;
   border: 1px solid var(--stroke) !important;
-  background: linear-gradient(180deg, #ffffff, #f4f9ff) !important;
+  background: linear-gradient(180deg, #123057, #0f294b) !important;
   color: var(--ink) !important;
   font-weight: 600 !important;
   box-shadow: var(--shadow-soft) !important;
