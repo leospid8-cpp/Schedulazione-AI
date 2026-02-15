@@ -8,7 +8,12 @@ import pandas as pd
 import altair as alt
 import streamlit.components.v1 as components
 
-from backend import DatabaseManager, LineaManager, OrdineManager, SchedulerManager
+from backend import DatabaseManager, LineaManager, OrdineManager
+
+try:
+    from backend import SchedulerManager
+except ImportError:
+    SchedulerManager = None
 
 
 #
@@ -68,12 +73,18 @@ if "db" not in st.session_state:
     st.session_state.ordine_mgr = OrdineManager(st.session_state.db)
 
 if "scheduler_mgr" not in st.session_state:
-    try:
-        st.session_state.scheduler_mgr = SchedulerManager(st.session_state.db)
-        st.session_state.scheduler_init_error = ""
-    except Exception as e:
+    if SchedulerManager is None:
         st.session_state.scheduler_mgr = None
-        st.session_state.scheduler_init_error = str(e)
+        st.session_state.scheduler_init_error = (
+            "Backend deploy non allineato: classe SchedulerManager non trovata."
+        )
+    else:
+        try:
+            st.session_state.scheduler_mgr = SchedulerManager(st.session_state.db)
+            st.session_state.scheduler_init_error = ""
+        except Exception as e:
+            st.session_state.scheduler_mgr = None
+            st.session_state.scheduler_init_error = str(e)
 
 if "page" not in st.session_state:
     st.session_state.page = "home"  # home | linea
