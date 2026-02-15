@@ -366,7 +366,7 @@ def grafico_produzione(df: pd.DataFrame):
     return (bars + line).properties(height=340).interactive()
 
 
-def grafico_schedulazione_tasks(df_tasks: pd.DataFrame):
+def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | None = None):
     if df_tasks.empty:
         return None
 
@@ -374,7 +374,12 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame):
     chart_df["line_id"] = chart_df["line_id"].astype(str)
     chart_df["code"] = chart_df["code"].astype(str)
 
-    unique_lines = max(1, chart_df["line_id"].nunique())
+    if all_lines:
+        y_domain = sorted({str(x) for x in all_lines})
+    else:
+        y_domain = sorted(chart_df["line_id"].unique())
+
+    unique_lines = max(1, len(y_domain))
     height = max(220, unique_lines * 26)
 
     return (
@@ -383,7 +388,7 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame):
         .encode(
             x=alt.X("start_min:Q", title="Timeline (minuti)"),
             x2="end_min:Q",
-            y=alt.Y("line_id:N", title="Linea", sort=sorted(chart_df["line_id"].unique())),
+            y=alt.Y("line_id:N", title="Linea", sort=y_domain, scale=alt.Scale(domain=y_domain)),
             color=alt.Color("code:N", title="Codice"),
             tooltip=[
                 alt.Tooltip("order_id:N", title="Ordine"),
@@ -430,13 +435,16 @@ def render_scheduler_section():
     with c3:
         try:
             stats = mgr.get_input_stats()
+            all_sched_lines = mgr.get_scheduler_lines()
+            total_sched_lines = len(all_sched_lines) if all_sched_lines else 0
             st.caption("Stato tabelle sched_*")
             st.write(
-                f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
+                f"Linee sched: **{total_sched_lines}** | Ordini: **{stats['sched_orders']}** | "
                 f"Cycle rows: **{stats['sched_cycle_times']}** | Runs: **{stats['sched_runs']}**"
             )
         except Exception as e:
             st.caption(f"Statistiche non disponibili: {e}")
+            all_sched_lines = []
 
     runs = mgr.get_recent_runs(limit=30)
     if not runs:
@@ -466,7 +474,8 @@ def render_scheduler_section():
     tasks = mgr.get_tasks_for_run(selected_run_id)
     df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()
     if not df_tasks.empty:
-        st.altair_chart(grafico_schedulazione_tasks(df_tasks), use_container_width=True)
+        line_domain = [r["line_id"] for r in all_sched_lines] if all_sched_lines else None
+        st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), use_container_width=True)
         with st.expander("Dettaglio task", expanded=False):
             st.dataframe(df_tasks, use_container_width=True)
     else:
