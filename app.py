@@ -429,16 +429,18 @@ def apply_enterprise_theme():
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-1: #eef3f9;
-  --bg-2: #e9f1ec;
+  --bg-1: #eff5fb;
+  --bg-2: #eef7f2;
   --panel: #ffffff;
-  --ink: #0f1b2d;
-  --muted: #4a5a70;
-  --accent: #0b6bcb;
-  --accent-2: #118a6f;
+  --ink: #0c1a2f;
+  --muted: #55657b;
+  --accent: #0a67d0;
+  --accent-2: #05a58a;
   --danger: #bf3b3b;
-  --stroke: #cfd8e3;
-  --soft: #f4f7fb;
+  --stroke: #d4dfeb;
+  --soft: #f4f8fd;
+  --shadow-soft: 0 10px 30px rgba(18, 33, 56, 0.08);
+  --shadow-card: 0 14px 28px rgba(17, 30, 50, 0.10);
 }
 
 html, body, [class*="css"] {
@@ -446,12 +448,72 @@ html, body, [class*="css"] {
 }
 
 .stApp {
-  background: linear-gradient(145deg, var(--bg-1), var(--bg-2));
+  position: relative;
+  background:
+    radial-gradient(1200px 560px at -8% -10%, rgba(69, 143, 255, 0.16), transparent 62%),
+    radial-gradient(980px 480px at 112% 0%, rgba(8, 189, 157, 0.14), transparent 60%),
+    linear-gradient(145deg, var(--bg-1), var(--bg-2));
   color: var(--ink) !important;
+  overflow-x: clip;
+}
+
+.stApp::before,
+.stApp::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(42px);
+  opacity: 0.24;
+}
+
+.stApp::before {
+  width: 260px;
+  height: 260px;
+  left: -60px;
+  top: 18vh;
+  border-radius: 999px;
+  background: rgba(29, 136, 255, 0.46);
+  animation: blobA 16s ease-in-out infinite;
+}
+
+.stApp::after {
+  width: 220px;
+  height: 220px;
+  right: -40px;
+  top: 48vh;
+  border-radius: 999px;
+  background: rgba(8, 184, 154, 0.44);
+  animation: blobB 18s ease-in-out infinite;
+}
+
+@keyframes blobA {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(34px, -22px) scale(1.06); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes blobB {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-28px, 26px) scale(1.05); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.block-container {
+  position: relative;
+  z-index: 1;
+  max-width: 1380px;
+  padding-bottom: 96px !important;
 }
 
 .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
   color: var(--ink) !important;
+  letter-spacing: 0.01em;
 }
 
 .stApp p, .stApp li, .stApp label, .stApp span, .stApp small, .stApp div {
@@ -463,37 +525,50 @@ html, body, [class*="css"] {
 }
 
 .card-kpi {
-  background: var(--panel);
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.88));
   border: 1px solid var(--stroke);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 14px 16px;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: fadeInUp 0.35s ease both;
+}
+
+.card-kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
 }
 
 .section-title {
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   font-weight: 700;
   color: var(--ink);
+  letter-spacing: 0.01em;
 }
 
 .section-sub {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
 div[data-testid="stMetric"] {
-  background: var(--panel);
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.90));
   border: 1px solid var(--stroke);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 8px 10px;
+  box-shadow: var(--shadow-soft);
+  animation: fadeInUp 0.35s ease both;
 }
 
 div[data-testid="stMetricLabel"] p {
   color: var(--muted) !important;
   font-weight: 600 !important;
+  letter-spacing: 0.01em;
 }
 
 div[data-testid="stMetricValue"] {
   color: var(--ink) !important;
+  font-weight: 700 !important;
 }
 
 div[data-testid="stMarkdownContainer"] p,
@@ -503,9 +578,12 @@ div[data-testid="stMarkdownContainer"] span {
 }
 
 div[data-testid="stChatMessage"] {
-  background: rgba(255,255,255,0.78);
+  background: rgba(255,255,255,0.82);
   border: 1px solid var(--stroke);
-  border-radius: 12px;
+  border-radius: 14px;
+  backdrop-filter: blur(3px);
+  box-shadow: var(--shadow-soft);
+  animation: fadeInUp 0.25s ease both;
 }
 
 div[data-testid="stChatMessageContent"] * {
@@ -515,7 +593,9 @@ div[data-testid="stChatMessageContent"] * {
 div[data-testid="stChatInput"] textarea,
 div[data-testid="stChatInput"] input {
   color: var(--ink) !important;
-  background: var(--panel) !important;
+  background: rgba(255,255,255,0.92) !important;
+  border: 1px solid var(--stroke) !important;
+  border-radius: 14px !important;
 }
 
 div[data-testid="stChatInput"] textarea::placeholder,
@@ -526,8 +606,10 @@ div[data-testid="stChatInput"] input::placeholder {
 
 div[data-testid="stDataFrame"] {
   border: 1px solid var(--stroke);
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
+  box-shadow: var(--shadow-soft);
+  animation: fadeInUp 0.35s ease both;
 }
 
 div[data-testid="stDataFrame"] * {
@@ -535,22 +617,38 @@ div[data-testid="stDataFrame"] * {
 }
 
 div[data-testid="stProgressBar"] > div > div {
-  background-color: var(--accent) !important;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
+}
+
+div.stButton > button {
+  border-radius: 12px !important;
+  border: 1px solid var(--stroke) !important;
+  background: linear-gradient(180deg, #ffffff, #f4f9ff) !important;
+  color: var(--ink) !important;
+  font-weight: 600 !important;
+  box-shadow: var(--shadow-soft) !important;
+  transition: transform 0.16s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+
+div.stButton > button:hover {
+  transform: translateY(-1px);
+  border-color: #a7bfd9 !important;
+  box-shadow: var(--shadow-card) !important;
 }
 
 .st-key-bottom_dock {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 8px;
+  bottom: 10px;
   z-index: 9999;
-  width: min(368px, calc(100vw - 24px));
-  background: rgba(11, 20, 38, 0.92);
-  border: 1px solid #1f3354;
+  width: min(378px, calc(100vw - 22px));
+  background: linear-gradient(155deg, rgba(11, 22, 43, 0.94), rgba(9, 33, 67, 0.90));
+  border: 1px solid #27426c;
   border-radius: 16px;
   padding: 6px 8px;
-  box-shadow: 0 12px 28px rgba(8, 16, 32, 0.35);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 30px rgba(9, 19, 36, 0.38);
+  backdrop-filter: blur(12px);
 }
 
 .st-key-bottom_dock > div {
@@ -570,11 +668,11 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button {
-  width: 48px !important;
-  height: 48px !important;
+  width: 50px !important;
+  height: 50px !important;
   border-radius: 11px !important;
-  border: 1px solid #2b4a78 !important;
-  background: #122647 !important;
+  border: 1px solid #31578f !important;
+  background: linear-gradient(160deg, #132d53, #173664) !important;
   color: #e8f2ff !important;
   padding: 0 !important;
   display: inline-flex !important;
@@ -588,18 +686,18 @@ div[data-testid="stProgressBar"] > div > div {
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button p,
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button span {
   margin: 0 !important;
-  font-size: 1.9rem !important;
+  font-size: 1.98rem !important;
   line-height: 1 !important;
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button:hover {
-  border-color: #6ea2e4 !important;
-  background: #19335d !important;
+  border-color: #7fb4ff !important;
+  background: linear-gradient(160deg, #193f73, #20518e) !important;
   transform: translateY(-1px);
 }
 
 .block-container {
-  padding-bottom: 90px !important;
+  padding-bottom: 96px !important;
 }
 </style>
         """,
