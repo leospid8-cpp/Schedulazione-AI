@@ -314,6 +314,30 @@ class SchedulerManager:
     def _connect(self):
         return psycopg2.connect(self.db.db_url)
 
+    def _table_exists(self, table_name: str) -> bool:
+        res = self.db.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = %s
+            ) AS ok
+            """,
+            (table_name,),
+        )
+        return bool(res and res[0]["ok"])
+
+    def _get_table_columns(self, table_name: str) -> set[str]:
+        rows = self.db.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            (table_name,),
+        )
+        return {r["column_name"] for r in rows} if rows else set()
+
     def ensure_schema(self):
         from team_pack.supabase_pipeline import apply_schema, ensure_strategy_constraint
 
@@ -332,7 +356,10 @@ class SchedulerManager:
             """
         )
         eligible_raw = self.db.execute("SELECT order_id, line_id FROM public.sched_eligible_lines")
-        cycle_raw = self.db.execute("SELECT code, line_id, cycle_min_per_piece FROM public.sched_cycle_times")
+        cycle_table = "sched_cycle_times"
+        if not self._table_exists(cycle_table) and self._table_exists("sched_cycle_lines"):
+            cycle_table = "sched_cycle_lines"
+        cycle_raw = self.db.execute(f"SELECT code, line_id, cycle_min_per_piece FROM public.{cycle_table}")
         config_raw = self.db.execute("SELECT line_id, current_code, loaded_qty FROM public.sched_current_config")
         setup_from_raw = self.db.execute("SELECT line_id, to_code, setup_min FROM public.sched_setup_from_current")
         setup_between_raw = self.db.execute("SELECT from_code, to_code, setup_min FROM public.sched_setup_between_codes")
@@ -427,24 +454,39 @@ class SchedulerManager:
         }
 
     def get_input_stats(self):
-        tables = [
-            "sched_lines",
-            "sched_orders",
-            "sched_eligible_lines",
-            "sched_cycle_times",
-            "sched_runs",
-            "sched_tasks",
-            "sched_unscheduled",
-        ]
+        cycle_table = "sched_cycle_times"
+        if not self._table_exists(cycle_table) and self._table_exists("sched_cycle_lines"):
+            cycle_table = "sched_cycle_lines"
+
+        tables = {
+            "sched_lines": "sched_lines",
+            "sched_orders": "sched_orders",
+            "sched_eligible_lines": "sched_eligible_lines",
+            "sched_cycle_times": cycle_table,
+            "sched_runs": "sched_runs",
+            "sched_tasks": "sched_tasks",
+            "sched_unscheduled": "sched_unscheduled",
+        }
         out = {}
-        for table in tables:
+        for key, table in tables.items():
+            if not self._table_exists(table):
+                out[key] = 0
+                continue
             res = self.db.execute(f"SELECT COUNT(*) AS c FROM public.{table}")
-            out[table] = int(res[0]["c"]) if res else 0
+            out[key] = int(res[0]["c"]) if res else 0
         return out
 
     def get_recent_runs(self, limit: int = 20):
-        return self.db.execute(
-            """
+        cols = self._get_table_columns("sched_runs")
+        tardy_col = "total_tardy_min" if "total_tardy_min" in cols else ("total_tardy" if "total_tardy" in cols else "0")
+        setup_col = "total_setup_min" if "total_setup_min" in cols else ("total_setup" if "total_setup" in cols else "0")
+        makespan_col = "makespan_min" if "makespan_min" in cols else ("makespan" if "makespan" in cols else "0")
+        avg_col = "avg_completion_min" if "avg_completion_min" in cols else ("avg_completion" if "avg_completion" in cols else "0")
+
+        if not self._table_exists("sched_runs"):
+            return []
+
+        sql = f"""
             SELECT
               run_id,
               strategy,
@@ -452,16 +494,169 @@ class SchedulerManager:
               total_orders,
               scheduled_orders,
               unscheduled_orders,
-              total_tardy_min,
-              total_setup_min,
-              makespan_min,
-              avg_completion_min
+              {tardy_col} AS total_tardy_min,
+              {setup_col} AS total_setup_min,
+              {makespan_col} AS makespan_min,
+              {avg_col} AS avg_completion_min
             FROM public.sched_runs
             ORDER BY run_id DESC
+            LIMIT %s
+            """
+        return self.db.execute(sql, (limit,))
+
+    def get_scheduler_orders(self, limit: int = 500):
+        return self.db.execute(
+            """
+            SELECT
+              o.order_id,
+              o.code,
+              o.qty,
+              o.due_date,
+              o.due_serial,
+              COALESCE(
+                (SELECT COUNT(*) FROM public.sched_eligible_lines e WHERE e.order_id = o.order_id),
+                0
+              ) AS eligible_lines_count
+            FROM public.sched_orders o
+            ORDER BY o.due_serial NULLS LAST, o.order_id
             LIMIT %s
             """,
             (limit,),
         )
+
+    def save_manual_run(self, edited_tasks):
+        """
+        Salva un run manuale partendo dai task editati dall'operatore.
+        edited_tasks: lista di dict con almeno
+          order_id, code, line_id, qty, setup_min, start_min, end_min, due_date
+        """
+        if not edited_tasks:
+            raise RuntimeError("Nessun task da salvare.")
+
+        orders = self.db.execute("SELECT order_id, due_serial, due_date FROM public.sched_orders")
+        due_by_order = {}
+        serials = []
+        for o in orders:
+            s = float(o["due_serial"]) if o.get("due_serial") is not None else 0.0
+            due_by_order[o["order_id"]] = {"due_serial": s, "due_date": o.get("due_date")}
+            if s > 0:
+                serials.append(s)
+        base_serial = min(serials) if serials else 0.0
+
+        normalized = []
+        for row in edited_tasks:
+            order_id = str(row.get("order_id", "")).strip()
+            code = str(row.get("code", "")).strip()
+            line_id = str(row.get("line_id", "")).strip()
+            if not order_id or not code or not line_id:
+                continue
+            qty = int(float(row.get("qty", 0)))
+            setup_min = float(row.get("setup_min", 0))
+            start_min = float(row.get("start_min", 0))
+            end_min = float(row.get("end_min", 0))
+            if end_min < start_min:
+                end_min = start_min
+
+            due_info = due_by_order.get(order_id, {"due_serial": 0.0, "due_date": None})
+            due_serial = float(due_info.get("due_serial") or 0.0)
+            if due_serial > 0 and base_serial > 0:
+                due_min = (due_serial - base_serial + 1.0) * 1440.0
+                tardy_min = max(0.0, end_min - due_min)
+            else:
+                tardy_min = max(0.0, float(row.get("tardy_min", 0)))
+
+            due_date = row.get("due_date") or due_info.get("due_date")
+
+            normalized.append(
+                {
+                    "order_id": order_id,
+                    "code": code,
+                    "line_id": line_id,
+                    "qty": max(qty, 0),
+                    "setup_min": max(setup_min, 0.0),
+                    "start_min": max(start_min, 0.0),
+                    "end_min": max(end_min, 0.0),
+                    "tardy_min": max(tardy_min, 0.0),
+                    "due_date": due_date,
+                }
+            )
+
+        if not normalized:
+            raise RuntimeError("Task non validi dopo validazione.")
+
+        total_tardy = sum(t["tardy_min"] for t in normalized)
+        total_setup = sum(t["setup_min"] for t in normalized)
+        makespan = max(t["end_min"] for t in normalized)
+        avg_completion = sum(t["end_min"] for t in normalized) / len(normalized)
+
+        run_cols = self._get_table_columns("sched_runs")
+        tardy_col = "total_tardy_min" if "total_tardy_min" in run_cols else "total_tardy"
+        setup_col = "total_setup_min" if "total_setup_min" in run_cols else "total_setup"
+        makespan_col = "makespan_min" if "makespan_min" in run_cols else "makespan"
+        avg_col = "avg_completion_min" if "avg_completion_min" in run_cols else "avg_completion"
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    INSERT INTO public.sched_runs(
+                      strategy,
+                      total_orders,
+                      scheduled_orders,
+                      unscheduled_orders,
+                      {tardy_col},
+                      {setup_col},
+                      {makespan_col},
+                      {avg_col}
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING run_id
+                    """,
+                    (
+                        "manual",
+                        len(normalized),
+                        len(normalized),
+                        0,
+                        total_tardy,
+                        total_setup,
+                        makespan,
+                        avg_completion,
+                    ),
+                )
+                run_id = int(cur.fetchone()[0])
+
+                for t in normalized:
+                    cur.execute(
+                        """
+                        INSERT INTO public.sched_tasks(
+                          run_id,
+                          order_id,
+                          code,
+                          line_id,
+                          qty,
+                          setup_min,
+                          start_min,
+                          end_min,
+                          tardy_min,
+                          due_date
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            run_id,
+                            t["order_id"],
+                            t["code"],
+                            t["line_id"],
+                            t["qty"],
+                            t["setup_min"],
+                            t["start_min"],
+                            t["end_min"],
+                            t["tardy_min"],
+                            t["due_date"],
+                        ),
+                    )
+
+        return run_id
 
     def get_scheduler_lines(self):
         return self.db.execute(
@@ -495,10 +690,14 @@ class SchedulerManager:
         )
 
     def get_unscheduled_for_run(self, run_id: int):
+        if not self._table_exists("sched_unscheduled"):
+            return []
+        cols = self._get_table_columns("sched_unscheduled")
+        id_col = "unscheduled_id" if "unscheduled_id" in cols else "unscheduled"
         return self.db.execute(
-            """
+            f"""
             SELECT
-              unscheduled_id,
+              {id_col} AS unscheduled_id,
               run_id,
               order_id,
               code,
@@ -506,7 +705,7 @@ class SchedulerManager:
               reason
             FROM public.sched_unscheduled
             WHERE run_id = %s
-            ORDER BY unscheduled_id
+            ORDER BY {id_col}
             """,
             (run_id,),
         )

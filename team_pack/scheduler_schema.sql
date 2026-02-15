@@ -50,7 +50,7 @@ create table if not exists public.sched_setup_between_codes (
 
 create table if not exists public.sched_runs (
   run_id bigserial primary key,
-  strategy text not null check (strategy in ('due_date', 'min_setup', 'balanced')),
+  strategy text not null check (strategy in ('due_date', 'min_setup', 'balanced', 'manual')),
   created_at timestamptz not null default now(),
   total_orders bigint not null default 0 check (total_orders >= 0),
   scheduled_orders bigint not null default 0 check (scheduled_orders >= 0),
