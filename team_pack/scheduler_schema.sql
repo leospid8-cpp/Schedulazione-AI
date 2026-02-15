@@ -48,6 +48,18 @@ create table if not exists public.sched_setup_between_codes (
   primary key (from_code, to_code)
 );
 
+create table if not exists public.sched_shift_config (
+  config_id smallint primary key default 1 check (config_id = 1),
+  shift_minutes numeric(12, 2) not null default 480 check (shift_minutes > 0),
+  day_minutes numeric(12, 2) not null default 1440 check (day_minutes >= shift_minutes),
+  shift_start_min numeric(12, 2) not null default 0 check (shift_start_min >= 0 and shift_start_min < 1440),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.sched_shift_config(config_id, shift_minutes, day_minutes, shift_start_min)
+values (1, 480, 1440, 0)
+on conflict (config_id) do nothing;
+
 create table if not exists public.sched_runs (
   run_id bigserial primary key,
   strategy text not null check (strategy in ('due_date', 'min_setup', 'balanced', 'manual')),
@@ -88,3 +100,33 @@ create index if not exists idx_sched_tasks_run_id on public.sched_tasks(run_id);
 create index if not exists idx_sched_tasks_line_id on public.sched_tasks(line_id);
 create index if not exists idx_sched_tasks_order_id on public.sched_tasks(order_id);
 create index if not exists idx_sched_unscheduled_run_id on public.sched_unscheduled(run_id);
+
+alter table public.sched_runs
+  add column if not exists shift_minutes numeric(12, 2) default 480;
+
+alter table public.sched_runs
+  add column if not exists day_minutes numeric(12, 2) default 1440;
+
+alter table public.sched_runs
+  add column if not exists shift_start_min numeric(12, 2) default 0;
+
+alter table public.sched_tasks
+  add column if not exists start_work_min numeric(12, 2);
+
+alter table public.sched_tasks
+  add column if not exists end_work_min numeric(12, 2);
+
+alter table public.sched_tasks
+  add column if not exists due_work_min numeric(12, 2);
+
+alter table public.sched_tasks
+  add column if not exists start_day integer;
+
+alter table public.sched_tasks
+  add column if not exists end_day integer;
+
+alter table public.sched_tasks
+  add column if not exists start_shift_min numeric(12, 2);
+
+alter table public.sched_tasks
+  add column if not exists end_shift_min numeric(12, 2);

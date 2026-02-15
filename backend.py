@@ -792,6 +792,7 @@ class SchedulerManager:
         config_raw = self.db.execute("SELECT line_id, current_code, loaded_qty FROM public.sched_current_config")
         setup_from_raw = self.db.execute("SELECT line_id, to_code, setup_min FROM public.sched_setup_from_current")
         setup_between_raw = self.db.execute("SELECT from_code, to_code, setup_min FROM public.sched_setup_between_codes")
+        calendar_cfg = self._get_calendar_config()
 
         lines = [{"line_id": r["line_id"]} for r in lines_raw]
 
@@ -842,6 +843,7 @@ class SchedulerManager:
                 "source": "database",
                 "generated_at": date.today().isoformat(),
             },
+            "calendar": calendar_cfg,
             "lines": lines,
             "orders": orders,
             "current_config": current_config,
@@ -852,6 +854,73 @@ class SchedulerManager:
             },
         }
         return dataset
+
+    def _get_calendar_config(self):
+        cfg = {
+            "shift_minutes": 480.0,
+            "day_minutes": 1440.0,
+            "shift_start_min": 0.0,
+        }
+        if not self._table_exists("sched_shift_config"):
+            return cfg
+        rows = self.db.execute(
+            """
+            SELECT shift_minutes, day_minutes, shift_start_min
+            FROM public.sched_shift_config
+            WHERE config_id = 1
+            """
+        )
+        if rows:
+            r = rows[0]
+            try:
+                cfg["shift_minutes"] = float(r.get("shift_minutes") or 480.0)
+            except Exception:
+                cfg["shift_minutes"] = 480.0
+            try:
+                cfg["day_minutes"] = float(r.get("day_minutes") or 1440.0)
+            except Exception:
+                cfg["day_minutes"] = 1440.0
+            try:
+                cfg["shift_start_min"] = float(r.get("shift_start_min") or 0.0)
+            except Exception:
+                cfg["shift_start_min"] = 0.0
+
+        if cfg["shift_minutes"] <= 0:
+            cfg["shift_minutes"] = 480.0
+        if cfg["day_minutes"] < cfg["shift_minutes"]:
+            cfg["day_minutes"] = max(cfg["shift_minutes"], 1440.0)
+        if cfg["shift_start_min"] < 0 or cfg["shift_start_min"] >= cfg["day_minutes"]:
+            cfg["shift_start_min"] = 0.0
+        return cfg
+
+    def _calendar_to_work_min(self, calendar_min: float, cfg: dict) -> float:
+        day_minutes = float(cfg["day_minutes"])
+        shift_minutes = float(cfg["shift_minutes"])
+        shift_start = float(cfg["shift_start_min"])
+        cal = max(0.0, float(calendar_min))
+        day_idx = int(cal // day_minutes)
+        in_day = cal - (day_idx * day_minutes)
+        if in_day <= shift_start:
+            in_shift = 0.0
+        elif in_day >= (shift_start + shift_minutes):
+            in_shift = shift_minutes
+        else:
+            in_shift = in_day - shift_start
+        return (day_idx * shift_minutes) + in_shift
+
+    def _work_to_calendar_parts(self, work_min: float, cfg: dict):
+        shift_minutes = float(cfg["shift_minutes"])
+        day_minutes = float(cfg["day_minutes"])
+        shift_start = float(cfg["shift_start_min"])
+        w = max(0.0, float(work_min))
+        day_idx = int(w // shift_minutes)
+        in_shift = w - (day_idx * shift_minutes)
+        cal = (day_idx * day_minutes) + shift_start + in_shift
+        return {
+            "calendar_min": cal,
+            "day": day_idx + 1,
+            "shift_min": in_shift,
+        }
 
     def run_scheduler(self, strategy: str = "all"):
         from team_pack.supabase_pipeline import (
@@ -892,6 +961,7 @@ class SchedulerManager:
             "sched_orders": "sched_orders",
             "sched_eligible_lines": "sched_eligible_lines",
             "sched_cycle_times": cycle_table,
+            "sched_shift_config": "sched_shift_config",
             "sched_runs": "sched_runs",
             "sched_tasks": "sched_tasks",
             "sched_unscheduled": "sched_unscheduled",
@@ -963,6 +1033,8 @@ class SchedulerManager:
             raise RuntimeError("Nessun task da salvare.")
 
         orders = self.db.execute("SELECT order_id, due_serial, due_date FROM public.sched_orders")
+        calendar_cfg = self._get_calendar_config()
+        shift_minutes = float(calendar_cfg["shift_minutes"])
         due_by_order = {}
         serials = []
         for o in orders:
@@ -986,15 +1058,24 @@ class SchedulerManager:
             if end_min < start_min:
                 end_min = start_min
 
+            start_work_min = float(row.get("start_work_min", self._calendar_to_work_min(start_min, calendar_cfg)))
+            end_work_min = float(row.get("end_work_min", self._calendar_to_work_min(end_min, calendar_cfg)))
+            if end_work_min < start_work_min:
+                end_work_min = start_work_min
+                end_min = max(end_min, start_min)
+
             due_info = due_by_order.get(order_id, {"due_serial": 0.0, "due_date": None})
             due_serial = float(due_info.get("due_serial") or 0.0)
             if due_serial > 0 and base_serial > 0:
-                due_min = (due_serial - base_serial + 1.0) * 1440.0
-                tardy_min = max(0.0, end_min - due_min)
+                due_work_min = (due_serial - base_serial + 1.0) * shift_minutes
+                tardy_min = max(0.0, end_work_min - due_work_min)
             else:
+                due_work_min = None
                 tardy_min = max(0.0, float(row.get("tardy_min", 0)))
 
             due_date = row.get("due_date") or due_info.get("due_date")
+            start_parts = self._work_to_calendar_parts(start_work_min, calendar_cfg)
+            end_parts = self._work_to_calendar_parts(end_work_min, calendar_cfg)
 
             normalized.append(
                 {
@@ -1007,6 +1088,13 @@ class SchedulerManager:
                     "end_min": max(end_min, 0.0),
                     "tardy_min": max(tardy_min, 0.0),
                     "due_date": due_date,
+                    "start_work_min": max(start_work_min, 0.0),
+                    "end_work_min": max(end_work_min, 0.0),
+                    "due_work_min": due_work_min,
+                    "start_day": int(start_parts["day"]),
+                    "end_day": int(end_parts["day"]),
+                    "start_shift_min": float(start_parts["shift_min"]),
+                    "end_shift_min": float(end_parts["shift_min"]),
                 }
             )
 
@@ -1037,52 +1125,89 @@ class SchedulerManager:
                       {setup_col},
                       {makespan_col},
                       {avg_col}
+                      {", shift_minutes" if "shift_minutes" in run_cols else ""}
+                      {", day_minutes" if "day_minutes" in run_cols else ""}
+                      {", shift_start_min" if "shift_start_min" in run_cols else ""}
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (
+                      %s, %s, %s, %s, %s, %s, %s, %s
+                      {", %s" if "shift_minutes" in run_cols else ""}
+                      {", %s" if "day_minutes" in run_cols else ""}
+                      {", %s" if "shift_start_min" in run_cols else ""}
+                    )
                     RETURNING run_id
                     """,
-                    (
-                        "manual",
-                        len(normalized),
-                        len(normalized),
-                        0,
-                        total_tardy,
-                        total_setup,
-                        makespan,
-                        avg_completion,
+                    tuple(
+                        [
+                            "manual",
+                            len(normalized),
+                            len(normalized),
+                            0,
+                            total_tardy,
+                            total_setup,
+                            makespan,
+                            avg_completion,
+                        ]
+                        + ([calendar_cfg["shift_minutes"]] if "shift_minutes" in run_cols else [])
+                        + ([calendar_cfg["day_minutes"]] if "day_minutes" in run_cols else [])
+                        + ([calendar_cfg["shift_start_min"]] if "shift_start_min" in run_cols else [])
                     ),
                 )
                 run_id = int(cur.fetchone()[0])
 
+                task_cols = self._get_table_columns("sched_tasks")
+                insert_cols = [
+                    "run_id",
+                    "order_id",
+                    "code",
+                    "line_id",
+                    "qty",
+                    "setup_min",
+                    "start_min",
+                    "end_min",
+                    "tardy_min",
+                    "due_date",
+                ]
+                for extra_col in [
+                    "start_work_min",
+                    "end_work_min",
+                    "due_work_min",
+                    "start_day",
+                    "end_day",
+                    "start_shift_min",
+                    "end_shift_min",
+                ]:
+                    if extra_col in task_cols:
+                        insert_cols.append(extra_col)
+
                 for t in normalized:
+                    row_map = {
+                        "run_id": run_id,
+                        "order_id": t["order_id"],
+                        "code": t["code"],
+                        "line_id": t["line_id"],
+                        "qty": t["qty"],
+                        "setup_min": t["setup_min"],
+                        "start_min": t["start_min"],
+                        "end_min": t["end_min"],
+                        "tardy_min": t["tardy_min"],
+                        "due_date": t["due_date"],
+                        "start_work_min": t.get("start_work_min"),
+                        "end_work_min": t.get("end_work_min"),
+                        "due_work_min": t.get("due_work_min"),
+                        "start_day": t.get("start_day"),
+                        "end_day": t.get("end_day"),
+                        "start_shift_min": t.get("start_shift_min"),
+                        "end_shift_min": t.get("end_shift_min"),
+                    }
                     cur.execute(
-                        """
+                        f"""
                         INSERT INTO public.sched_tasks(
-                          run_id,
-                          order_id,
-                          code,
-                          line_id,
-                          qty,
-                          setup_min,
-                          start_min,
-                          end_min,
-                          tardy_min,
-                          due_date
+                          {", ".join(insert_cols)}
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES ({", ".join(["%s"] * len(insert_cols))})
                         """,
-                        (
-                            run_id,
-                            t["order_id"],
-                            t["code"],
-                            t["line_id"],
-                            t["qty"],
-                            t["setup_min"],
-                            t["start_min"],
-                            t["end_min"],
-                            t["tardy_min"],
-                            t["due_date"],
-                        ),
+                        tuple(row_map[c] for c in insert_cols),
                     )
 
         return run_id
@@ -1096,21 +1221,13 @@ class SchedulerManager:
             """
         )
 
+    def get_scheduler_calendar_config(self):
+        return self._get_calendar_config()
+
     def get_tasks_for_run(self, run_id: int):
         return self.db.execute(
             """
-            SELECT
-              task_id,
-              run_id,
-              order_id,
-              code,
-              line_id,
-              qty,
-              setup_min,
-              start_min,
-              end_min,
-              tardy_min,
-              due_date
+            SELECT *
             FROM public.sched_tasks
             WHERE run_id = %s
             ORDER BY start_min, line_id, task_id

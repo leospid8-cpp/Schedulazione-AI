@@ -494,6 +494,11 @@ def build_dataset(xlsx_path):
             "from_current": setup_from_current,
             "between_codes": setup_between_codes,
         },
+        "calendar": {
+            "shift_minutes": 480,
+            "day_minutes": 1440,
+            "shift_start_min": 0,
+        },
         "excel_context": {
             "line_specs": line_specs,
             "code_specs": code_specs,
