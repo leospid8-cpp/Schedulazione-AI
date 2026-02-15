@@ -1,0 +1,86 @@
+CONSEGNA SCHEDULAZIONE - SOLO LOGICHE
+
+Scopo:
+- Dovete scrivere solo la logica di schedulazione.
+- Non dovete fare UI, DB, AI o integrazione.
+
+INPUT DATI (oggetto "data"):
+- orders: lista ordini con campi:
+  - order_id
+  - code
+  - qty
+  - due_date
+  - eligible_lines
+  - cycle_minutes_by_line
+- lines: lista linee con:
+  - line_id
+- current_config:
+  - current_config[line_id] = codice attualmente montato
+- setup_minutes:
+  - from_current[line_id][code]
+  - between_codes[from_code][to_code]
+
+FORMULE DA USARE:
+- run_min = qty * cycle_minutes_by_line[line_id]
+- start_min = next_free_min_linea + setup_min
+- end_min = start_min + run_min
+- tardy_min = max(0, end_min - due_min)
+
+OUTPUT OBBLIGATORIO (stesso formato per tutti):
+{
+  "strategy": "due_date_or_min_setup",
+  "tasks": [
+    {
+      "order_id": "ORD_001",
+      "code": "CD333",
+      "line_id": "LM02",
+      "qty": 16,
+      "setup_min": 20,
+      "start_min": 120,
+      "end_min": 168,
+      "tardy_min": 0
+    }
+  ],
+  "unscheduled": [
+    {
+      "order_id": "ORD_099",
+      "code": "CD999",
+      "qty": 50,
+      "reason": "no eligible line"
+    }
+  ],
+  "kpi": {
+    "total_tardy_min": 0,
+    "total_setup_min": 2710,
+    "makespan_min": 5504,
+    "avg_completion_min": 320.5
+  }
+}
+
+PERSONA 1 - LOGICA A: due_date
+Obiettivo:
+- rispettare OBBLIGATORIAMENTE l ordine per scadenza (EDD)
+- dentro questo vincolo, ottimizzare i tempi medi
+
+Regole:
+1) Ordina sempre gli ordini per due_date crescente.
+2) Se due ordini hanno stessa due_date, mantieni l ordine originale.
+3) Per ogni ordine scegli la linea che fa meno ritardo (tardy_min).
+4) Se il ritardo e uguale, scegli la linea con end_min piu basso.
+5) Se ancora uguale, scegli line_id alfabeticamente.
+
+Output:
+- strategy = "due_date"
+
+PERSONA 2 - LOGICA B: min_setup
+Obiettivo:
+- minimizzare cambi attrezzaggio e tempi morti
+
+Regole:
+1) minimizzare setup_min
+2) a parita minimizzare start_min
+3) a parita minimizzare tardy_min
+4) a parita finale scegliere line_id alfabeticamente
+
+Output:
+- strategy = "min_setup"

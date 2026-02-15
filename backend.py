@@ -2,6 +2,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import streamlit as st
 from datetime import date, timedelta
+from pathlib import Path
 
 
 class DatabaseManager:
@@ -295,3 +296,208 @@ class OrdineManager:
     def get_totale_target(self):
         res = self.db.execute("SELECT SUM(quantita) as tot FROM ordini_produzione")
         return res[0]["tot"] if res and res[0]["tot"] else 0
+
+
+class SchedulerManager:
+    """
+    Gestione schedulatore avanzato:
+    - crea/aggiorna schema sched_*
+    - esegue strategie e salva run/tasks su DB
+    """
+
+    def __init__(self, db_manager: DatabaseManager):
+        self.db = db_manager
+        root = Path(__file__).resolve().parent
+        self.schema_path = root / "team_pack" / "scheduler_schema.sql"
+        self.ensure_schema()
+
+    def _connect(self):
+        return psycopg2.connect(self.db.db_url)
+
+    def ensure_schema(self):
+        from team_pack.supabase_pipeline import apply_schema, ensure_strategy_constraint
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                apply_schema(cur, str(self.schema_path))
+                ensure_strategy_constraint(cur)
+
+    def _build_dataset_from_db(self):
+        lines_raw = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
+        orders_raw = self.db.execute(
+            """
+            SELECT order_id, code, qty, due_date, due_serial
+            FROM public.sched_orders
+            ORDER BY order_id
+            """
+        )
+        eligible_raw = self.db.execute("SELECT order_id, line_id FROM public.sched_eligible_lines")
+        cycle_raw = self.db.execute("SELECT code, line_id, cycle_min_per_piece FROM public.sched_cycle_times")
+        config_raw = self.db.execute("SELECT line_id, current_code, loaded_qty FROM public.sched_current_config")
+        setup_from_raw = self.db.execute("SELECT line_id, to_code, setup_min FROM public.sched_setup_from_current")
+        setup_between_raw = self.db.execute("SELECT from_code, to_code, setup_min FROM public.sched_setup_between_codes")
+
+        lines = [{"line_id": r["line_id"]} for r in lines_raw]
+
+        eligible_map = {}
+        for r in eligible_raw:
+            oid = r["order_id"]
+            eligible_map.setdefault(oid, []).append(r["line_id"])
+
+        cycle_by_code = {}
+        for r in cycle_raw:
+            code = r["code"]
+            cycle_by_code.setdefault(code, {})[r["line_id"]] = float(r["cycle_min_per_piece"])
+
+        orders = []
+        for r in orders_raw:
+            due_date = r.get("due_date")
+            orders.append(
+                {
+                    "order_id": r["order_id"],
+                    "code": r["code"],
+                    "qty": int(r["qty"]),
+                    "due_serial": int(r["due_serial"] or 0),
+                    "due_date": due_date.isoformat() if due_date else None,
+                    "eligible_lines": sorted(eligible_map.get(r["order_id"], [])),
+                    "cycle_minutes_by_line": cycle_by_code.get(r["code"], {}),
+                }
+            )
+
+        current_config = {}
+        for r in config_raw:
+            current_config[r["line_id"]] = {
+                "current_code": r.get("current_code") or "",
+                "loaded_qty": int(r.get("loaded_qty") or 0),
+            }
+
+        setup_from = {}
+        for r in setup_from_raw:
+            lid = r["line_id"]
+            setup_from.setdefault(lid, {})[r["to_code"]] = float(r["setup_min"])
+
+        setup_between = {}
+        for r in setup_between_raw:
+            frm = r["from_code"]
+            setup_between.setdefault(frm, {})[r["to_code"]] = float(r["setup_min"])
+
+        dataset = {
+            "meta": {
+                "source": "database",
+                "generated_at": date.today().isoformat(),
+            },
+            "lines": lines,
+            "orders": orders,
+            "current_config": current_config,
+            "setup_minutes": {
+                "per_tool_minutes": 0,
+                "from_current": setup_from,
+                "between_codes": setup_between,
+            },
+        }
+        return dataset
+
+    def run_scheduler(self, strategy: str = "all"):
+        from team_pack.supabase_pipeline import (
+            persist_run,
+            run_requested_strategies,
+        )
+
+        dataset = self._build_dataset_from_db()
+        if not dataset["orders"] or not dataset["lines"]:
+            raise RuntimeError("Dati schedulatore mancanti su DB. Carica prima le tabelle sched_*.")
+        results = run_requested_strategies(dataset, strategy)
+
+        saved_runs = []
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for result in results:
+                    run_id = persist_run(cur, result)
+                    saved_runs.append(
+                        {
+                            "run_id": run_id,
+                            "strategy": result.get("strategy"),
+                            "kpi": result.get("kpi", {}),
+                        }
+                    )
+
+        return {
+            "source": "database",
+            "saved_runs": saved_runs,
+        }
+
+    def get_input_stats(self):
+        tables = [
+            "sched_lines",
+            "sched_orders",
+            "sched_eligible_lines",
+            "sched_cycle_times",
+            "sched_runs",
+            "sched_tasks",
+            "sched_unscheduled",
+        ]
+        out = {}
+        for table in tables:
+            res = self.db.execute(f"SELECT COUNT(*) AS c FROM public.{table}")
+            out[table] = int(res[0]["c"]) if res else 0
+        return out
+
+    def get_recent_runs(self, limit: int = 20):
+        return self.db.execute(
+            """
+            SELECT
+              run_id,
+              strategy,
+              created_at,
+              total_orders,
+              scheduled_orders,
+              unscheduled_orders,
+              total_tardy_min,
+              total_setup_min,
+              makespan_min,
+              avg_completion_min
+            FROM public.sched_runs
+            ORDER BY run_id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+
+    def get_tasks_for_run(self, run_id: int):
+        return self.db.execute(
+            """
+            SELECT
+              task_id,
+              run_id,
+              order_id,
+              code,
+              line_id,
+              qty,
+              setup_min,
+              start_min,
+              end_min,
+              tardy_min,
+              due_date
+            FROM public.sched_tasks
+            WHERE run_id = %s
+            ORDER BY start_min, line_id, task_id
+            """,
+            (run_id,),
+        )
+
+    def get_unscheduled_for_run(self, run_id: int):
+        return self.db.execute(
+            """
+            SELECT
+              unscheduled_id,
+              run_id,
+              order_id,
+              code,
+              qty,
+              reason
+            FROM public.sched_unscheduled
+            WHERE run_id = %s
+            ORDER BY unscheduled_id
+            """,
+            (run_id,),
+        )

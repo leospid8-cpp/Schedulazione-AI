@@ -1,0 +1,76 @@
+Tabelle da creare su Supabase:
+Schema SQL completo pronto da eseguire: team_pack/scheduler_schema.sql
+
+1. sched_lines
+   - line_id: text, PRIMARY KEY, NOT NULL
+   - created_at: timestamptz, NOT NULL, default now()
+
+2. sched_orders
+   - order_id: text, PRIMARY KEY, NOT NULL
+   - code: text, NOT NULL
+   - qty: bigint, NOT NULL, check qty >= 0
+   - due_date: date, NULL
+   - due_serial: bigint, NULL
+   - created_at: timestamptz, NOT NULL, default now()
+
+3. sched_eligible_lines
+   - order_id: text, NOT NULL, FOREIGN KEY -> sched_orders(order_id), on delete cascade
+   - line_id: text, NOT NULL, FOREIGN KEY -> sched_lines(line_id), on delete cascade
+   - PRIMARY KEY composita: (order_id, line_id)
+
+4. sched_cycle_times
+   - code: text, NOT NULL
+   - line_id: text, NOT NULL, FOREIGN KEY -> sched_lines(line_id), on delete cascade
+   - cycle_min_per_piece: numeric(12,3), NOT NULL, check > 0
+   - PRIMARY KEY composita: (code, line_id)
+
+5. sched_current_config
+   - line_id: text, PRIMARY KEY, NOT NULL, FOREIGN KEY -> sched_lines(line_id), on delete cascade
+   - current_code: text, NULL
+   - loaded_qty: bigint, NOT NULL, default 0, check >= 0
+   - updated_at: timestamptz, NOT NULL, default now()
+
+6. sched_setup_from_current
+   - line_id: text, NOT NULL, FOREIGN KEY -> sched_lines(line_id), on delete cascade
+   - to_code: text, NOT NULL
+   - setup_min: numeric(12,2), NOT NULL, check >= 0
+   - PRIMARY KEY composita: (line_id, to_code)
+
+7. sched_setup_between_codes
+   - from_code: text, NOT NULL
+   - to_code: text, NOT NULL
+   - setup_min: numeric(12,2), NOT NULL, check >= 0
+   - PRIMARY KEY composita: (from_code, to_code)
+
+8. sched_runs
+   - run_id: bigserial, PRIMARY KEY, NOT NULL
+   - strategy: text, NOT NULL, check in ('due_date','min_setup','balanced')
+   - created_at: timestamptz, NOT NULL, default now()
+   - total_orders: bigint, NOT NULL, default 0
+   - scheduled_orders: bigint, NOT NULL, default 0
+   - unscheduled_orders: bigint, NOT NULL, default 0
+   - total_tardy_min: numeric(12,2), NOT NULL, default 0
+   - total_setup_min: numeric(12,2), NOT NULL, default 0
+   - makespan_min: numeric(12,2), NOT NULL, default 0
+   - avg_completion_min: numeric(12,2), NOT NULL, default 0
+
+9. sched_tasks
+   - task_id: bigserial, PRIMARY KEY, NOT NULL
+   - run_id: bigint, NOT NULL, FOREIGN KEY -> sched_runs(run_id), on delete cascade
+   - order_id: text, NOT NULL, FOREIGN KEY -> sched_orders(order_id), on delete cascade
+   - code: text, NOT NULL
+   - line_id: text, NOT NULL, FOREIGN KEY -> sched_lines(line_id), on delete cascade
+   - qty: bigint, NOT NULL, check >= 0
+   - setup_min: numeric(12,2), NOT NULL, check >= 0
+   - start_min: numeric(12,2), NOT NULL
+   - end_min: numeric(12,2), NOT NULL
+   - tardy_min: numeric(12,2), NOT NULL, check >= 0
+   - due_date: date, NULL
+
+10. sched_unscheduled
+    - unscheduled_id: bigserial, PRIMARY KEY, NOT NULL
+    - run_id: bigint, NOT NULL, FOREIGN KEY -> sched_runs(run_id), on delete cascade
+    - order_id: text, NOT NULL, FOREIGN KEY -> sched_orders(order_id), on delete cascade
+    - code: text, NOT NULL
+    - qty: integer, NOT NULL, check >= 0
+    - reason: text, NOT NULL

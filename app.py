@@ -8,7 +8,7 @@ import pandas as pd
 import altair as alt
 import streamlit.components.v1 as components
 
-from backend import DatabaseManager, LineaManager, OrdineManager
+from backend import DatabaseManager, LineaManager, OrdineManager, SchedulerManager
 
 
 #
@@ -66,6 +66,14 @@ if "db" not in st.session_state:
     st.session_state.db = DatabaseManager()
     st.session_state.linea_mgr = LineaManager(st.session_state.db)
     st.session_state.ordine_mgr = OrdineManager(st.session_state.db)
+
+if "scheduler_mgr" not in st.session_state:
+    try:
+        st.session_state.scheduler_mgr = SchedulerManager(st.session_state.db)
+        st.session_state.scheduler_init_error = ""
+    except Exception as e:
+        st.session_state.scheduler_mgr = None
+        st.session_state.scheduler_init_error = str(e)
 
 if "page" not in st.session_state:
     st.session_state.page = "home"  # home | linea
@@ -347,6 +355,121 @@ def grafico_produzione(df: pd.DataFrame):
     return (bars + line).properties(height=340).interactive()
 
 
+def grafico_schedulazione_tasks(df_tasks: pd.DataFrame):
+    if df_tasks.empty:
+        return None
+
+    chart_df = df_tasks.copy()
+    chart_df["line_id"] = chart_df["line_id"].astype(str)
+    chart_df["code"] = chart_df["code"].astype(str)
+
+    unique_lines = max(1, chart_df["line_id"].nunique())
+    height = max(220, unique_lines * 26)
+
+    return (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("start_min:Q", title="Timeline (minuti)"),
+            x2="end_min:Q",
+            y=alt.Y("line_id:N", title="Linea", sort=sorted(chart_df["line_id"].unique())),
+            color=alt.Color("code:N", title="Codice"),
+            tooltip=[
+                alt.Tooltip("order_id:N", title="Ordine"),
+                alt.Tooltip("code:N", title="Codice"),
+                alt.Tooltip("line_id:N", title="Linea"),
+                alt.Tooltip("qty:Q", title="Qta"),
+                alt.Tooltip("setup_min:Q", title="Setup min"),
+                alt.Tooltip("start_min:Q", title="Start min"),
+                alt.Tooltip("end_min:Q", title="End min"),
+                alt.Tooltip("tardy_min:Q", title="Ritardo min"),
+            ],
+        )
+        .properties(height=height)
+        .interactive()
+    )
+
+
+def render_scheduler_section():
+    st.divider()
+    st.subheader("📅 Schedulatore (solo DB)")
+
+    mgr = st.session_state.get("scheduler_mgr")
+    if mgr is None:
+        err = st.session_state.get("scheduler_init_error", "Scheduler non inizializzato.")
+        st.error(f"Scheduler non disponibile: {err}")
+        return
+
+    c2, c3 = st.columns([1.4, 1.8])
+
+    with c2:
+        strategy = st.selectbox(
+            "Strategia",
+            ["due_date", "min_setup", "balanced", "both", "all"],
+            key="sched_strategy",
+        )
+        if st.button("Esegui schedulazione", use_container_width=True):
+            try:
+                res = mgr.run_scheduler(strategy=strategy)
+                run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
+                st.success(f"Run salvati: {run_text}")
+            except Exception as e:
+                st.error(f"Errore esecuzione schedulatore: {e}")
+
+    with c3:
+        try:
+            stats = mgr.get_input_stats()
+            st.caption("Stato tabelle sched_*")
+            st.write(
+                f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
+                f"Cycle rows: **{stats['sched_cycle_times']}** | Runs: **{stats['sched_runs']}**"
+            )
+        except Exception as e:
+            st.caption(f"Statistiche non disponibili: {e}")
+
+    runs = mgr.get_recent_runs(limit=30)
+    if not runs:
+        st.info("Nessun run schedulatore disponibile.")
+        return
+
+    def _run_label(r):
+        created = str(r.get("created_at", ""))
+        return f"Run {r['run_id']} | {r['strategy']} | {created}"
+
+    run_ids = [r["run_id"] for r in runs]
+    run_by_id = {r["run_id"]: r for r in runs}
+    selected_run_id = st.selectbox(
+        "Run salvati",
+        run_ids,
+        format_func=lambda rid: _run_label(run_by_id[rid]),
+        key="sched_selected_run_id",
+    )
+
+    row = run_by_id[selected_run_id]
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Strategia", row["strategy"])
+    k2.metric("Ordini schedulati", row["scheduled_orders"])
+    k3.metric("Totale ritardo (min)", f"{row['total_tardy_min']}")
+    k4.metric("Totale setup (min)", f"{row['total_setup_min']}")
+
+    tasks = mgr.get_tasks_for_run(selected_run_id)
+    df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()
+    if not df_tasks.empty:
+        st.altair_chart(grafico_schedulazione_tasks(df_tasks), use_container_width=True)
+        with st.expander("Dettaglio task", expanded=False):
+            st.dataframe(df_tasks, use_container_width=True)
+    else:
+        st.caption("Nessun task per il run selezionato.")
+
+    unscheduled = mgr.get_unscheduled_for_run(selected_run_id)
+    df_uns = pd.DataFrame(unscheduled) if unscheduled else pd.DataFrame()
+    with st.expander("Ordini non schedulati", expanded=False):
+        if df_uns.empty:
+            st.caption("Nessun ordine non schedulato.")
+        else:
+            st.dataframe(df_uns, use_container_width=True)
+
+
 #
 # pagine
 #
@@ -594,6 +717,9 @@ ISTRUZIONI:
                 st.write("---")
         else:
             st.caption("Nessun ordine attivo.")
+
+
+    render_scheduler_section()
 
 
 def render_linea_detail(linea_id: int):
