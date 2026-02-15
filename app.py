@@ -92,8 +92,6 @@ if "selected_linea_id" not in st.session_state:
     st.session_state.selected_linea_id = 1
 if "app_section" not in st.session_state:
     st.session_state.app_section = "home"  # home | scada | graphs | planner | linea_detail
-if "app_nav_choice" not in st.session_state:
-    st.session_state.app_nav_choice = "🏠"
 
 
 #
@@ -102,7 +100,6 @@ if "app_nav_choice" not in st.session_state:
 def goto_home():
     st.session_state.page = "home"
     st.session_state.app_section = "home"
-    st.session_state.app_nav_choice = "🏠"
     st.rerun()
 
 
@@ -110,7 +107,6 @@ def goto_linea(linea_id: int):
     st.session_state.page = "linea"
     st.session_state.selected_linea_id = int(linea_id)
     st.session_state.app_section = "linea_detail"
-    st.session_state.app_nav_choice = "🏭"
     st.rerun()
 
 
@@ -543,58 +539,58 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .bottom-nav-wrap {
-  position: sticky;
-  bottom: 0;
-  z-index: 30;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 14px;
+  z-index: 9999;
   display: flex;
   justify-content: center;
-  margin-top: 14px;
-  padding-bottom: 6px;
+  width: min(360px, calc(100vw - 22px));
 }
 
 .bottom-nav-wrap > div {
   background: rgba(11, 20, 38, 0.92);
   border: 1px solid #1f3354;
   border-radius: 22px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   box-shadow: 0 12px 28px rgba(8, 16, 32, 0.35);
   backdrop-filter: blur(10px);
+  width: 100%;
 }
 
-.bottom-nav-wrap div[role="radiogroup"] {
-  gap: 10px;
+.st-key-dock_nav div[data-testid="stHorizontalBlock"] {
+  gap: 10px !important;
 }
 
-.bottom-nav-wrap div[role="radiogroup"] > label {
-  width: 48px;
-  height: 48px;
-  border-radius: 999px;
-  border: 1px solid #2a446f;
-  background: #142849;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 !important;
+.st-key-dock_nav [class*="st-key-dock_btn_"] button {
+  width: 52px !important;
+  height: 52px !important;
+  border-radius: 14px !important;
+  border: 1px solid #2b4a78 !important;
+  background: #122647 !important;
+  color: #e8f2ff !important;
   padding: 0 !important;
+  font-size: 1.34rem !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
   transition: all 0.2s ease;
 }
 
-.bottom-nav-wrap div[role="radiogroup"] > label:hover {
-  border-color: #4f79b3;
+.st-key-dock_nav [class*="st-key-dock_btn_"] button:hover {
+  border-color: #6ea2e4 !important;
+  background: #19335d !important;
   transform: translateY(-1px);
 }
 
-.bottom-nav-wrap div[role="radiogroup"] > label p {
-  font-size: 1.08rem !important;
-  line-height: 1 !important;
-  color: #dbe8ff !important;
-  margin: 0 !important;
+.st-key-dock_nav [class*="st-key-dock_btn_"] button:focus,
+.st-key-dock_nav [class*="st-key-dock_btn_"] button:focus-visible {
+  outline: 2px solid #8dc4ff !important;
+  outline-offset: 2px !important;
 }
 
-.bottom-nav-wrap div[role="radiogroup"] > label:has(input:checked) {
-  background: linear-gradient(145deg, #0f67c9, #0a7aa2);
-  border-color: #7bb8ff;
-  box-shadow: 0 0 0 3px rgba(102, 179, 255, 0.22);
+.block-container {
+  padding-bottom: 110px !important;
 }
 </style>
         """,
@@ -603,39 +599,26 @@ div[data-testid="stProgressBar"] > div > div {
 
 
 def render_bottom_nav():
-    icons = ["🏠", "🏭", "📈", "🗓️"]
-    section_to_icon = {
-        "home": "🏠",
-        "scada": "🏭",
-        "graphs": "📈",
-        "planner": "🗓️",
-        "linea_detail": "🏭",
-    }
-    icon_to_section = {
-        "🏠": "home",
-        "🏭": "scada",
-        "📈": "graphs",
-        "🗓️": "planner",
-    }
-
-    current_icon = section_to_icon.get(st.session_state.get("app_section", "home"), "🏠")
-    if st.session_state.get("app_nav_choice") not in icons:
-        st.session_state.app_nav_choice = current_icon
-
     st.markdown('<div class="bottom-nav-wrap"><div>', unsafe_allow_html=True)
-    chosen = st.radio(
-        "Dock",
-        options=icons,
-        key="app_nav_choice",
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    with st.container(key="dock_nav"):
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+        with c1:
+            if st.button("🏠", key="dock_btn_home", use_container_width=True, help="Home"):
+                st.session_state.app_section = "home"
+                st.rerun()
+        with c2:
+            if st.button("🏭", key="dock_btn_scada", use_container_width=True, help="SCADA"):
+                st.session_state.app_section = "scada"
+                st.rerun()
+        with c3:
+            if st.button("📈", key="dock_btn_graphs", use_container_width=True, help="Grafici"):
+                st.session_state.app_section = "graphs"
+                st.rerun()
+        with c4:
+            if st.button("🗓️", key="dock_btn_planner", use_container_width=True, help="Planner"):
+                st.session_state.app_section = "planner"
+                st.rerun()
     st.markdown("</div></div>", unsafe_allow_html=True)
-
-    new_section = icon_to_section[chosen]
-    if new_section != st.session_state.get("app_section"):
-        st.session_state.app_section = new_section
-        st.rerun()
 
 
 def render_home_chat_panel():
