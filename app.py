@@ -578,10 +578,21 @@ div[data-testid="stProgressBar"] > div > div {
   background: #122647 !important;
   color: #e8f2ff !important;
   padding: 0 !important;
-  font-size: 1.62rem !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  font-size: 2rem !important;
+  line-height: 1 !important;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif !important;
   font-weight: 700 !important;
   box-shadow: none !important;
   transition: all 0.2s ease;
+}
+
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button p {
+  margin: 0 !important;
+  font-size: 2rem !important;
+  line-height: 1 !important;
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button:hover {
