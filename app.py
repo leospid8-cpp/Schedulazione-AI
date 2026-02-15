@@ -389,36 +389,6 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
     chart_df = df_tasks.copy()
     chart_df["line_id"] = chart_df["line_id"].astype(str)
     chart_df["code"] = chart_df["code"].astype(str)
-    chart_df["start_min"] = pd.to_numeric(chart_df["start_min"], errors="coerce").fillna(0.0)
-    chart_df["end_min"] = pd.to_numeric(chart_df["end_min"], errors="coerce").fillna(0.0)
-
-    def _slot_label(day_val, shift_val, fallback_min: float) -> str:
-        try:
-            if pd.notna(day_val) and pd.notna(shift_val):
-                d = int(float(day_val))
-                s = float(shift_val)
-                hh = int(s // 60)
-                mm = int(s % 60)
-                return f"G{d} {hh:02d}:{mm:02d}"
-        except Exception:
-            pass
-        return f"{float(fallback_min):.1f} min"
-
-    if "start_day" in chart_df.columns and "start_shift_min" in chart_df.columns:
-        chart_df["start_slot"] = chart_df.apply(
-            lambda r: _slot_label(r.get("start_day"), r.get("start_shift_min"), r.get("start_min", 0.0)),
-            axis=1,
-        )
-    else:
-        chart_df["start_slot"] = chart_df["start_min"].map(lambda v: f"{float(v):.1f} min")
-
-    if "end_day" in chart_df.columns and "end_shift_min" in chart_df.columns:
-        chart_df["end_slot"] = chart_df.apply(
-            lambda r: _slot_label(r.get("end_day"), r.get("end_shift_min"), r.get("end_min", 0.0)),
-            axis=1,
-        )
-    else:
-        chart_df["end_slot"] = chart_df["end_min"].map(lambda v: f"{float(v):.1f} min")
 
     if all_lines:
         y_domain = sorted({str(x) for x in all_lines})
@@ -428,42 +398,20 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
     unique_lines = max(1, len(y_domain))
     height = max(220, unique_lines * 26)
 
-    has_ts = ("start_at" in chart_df.columns and "end_at" in chart_df.columns)
-    if has_ts:
-        chart_df["start_at"] = pd.to_datetime(chart_df["start_at"], errors="coerce")
-        chart_df["end_at"] = pd.to_datetime(chart_df["end_at"], errors="coerce")
-        has_ts = bool(chart_df["start_at"].notna().any() and chart_df["end_at"].notna().any())
-
-    if has_ts:
-        return (
-            alt.Chart(chart_df)
-            .mark_bar()
-            .encode(
-                x=alt.X("start_at:T", title="Timeline calendario (data/ora)"),
-                x2="end_at:T",
-                y=alt.Y("line_id:N", title="Linea", sort=y_domain, scale=alt.Scale(domain=y_domain)),
-                color=alt.Color("code:N", title="Codice"),
-                tooltip=[
-                    alt.Tooltip("order_id:N", title="Ordine"),
-                    alt.Tooltip("code:N", title="Codice"),
-                    alt.Tooltip("line_id:N", title="Linea"),
-                    alt.Tooltip("qty:Q", title="Qta"),
-                    alt.Tooltip("setup_min:Q", title="Setup min"),
-                    alt.Tooltip("start_at:T", title="Inizio"),
-                    alt.Tooltip("end_at:T", title="Fine"),
-                    alt.Tooltip("tardy_min:Q", title="Ritardo min"),
-                ],
-            )
-            .properties(height=height)
-            .interactive()
-        )
+    if "start_at" not in chart_df.columns or "end_at" not in chart_df.columns:
+        return None
+    chart_df["start_at"] = pd.to_datetime(chart_df["start_at"], errors="coerce")
+    chart_df["end_at"] = pd.to_datetime(chart_df["end_at"], errors="coerce")
+    chart_df = chart_df.dropna(subset=["start_at", "end_at"])
+    if chart_df.empty:
+        return None
 
     return (
         alt.Chart(chart_df)
         .mark_bar()
         .encode(
-            x=alt.X("start_min:Q", title="Timeline calendario (min)"),
-            x2="end_min:Q",
+            x=alt.X("start_at:T", title="Timeline calendario (data/ora)"),
+            x2="end_at:T",
             y=alt.Y("line_id:N", title="Linea", sort=y_domain, scale=alt.Scale(domain=y_domain)),
             color=alt.Color("code:N", title="Codice"),
             tooltip=[
@@ -472,10 +420,9 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
                 alt.Tooltip("line_id:N", title="Linea"),
                 alt.Tooltip("qty:Q", title="Qta"),
                 alt.Tooltip("setup_min:Q", title="Setup min"),
-                alt.Tooltip("start_slot:N", title="Start turno"),
-                alt.Tooltip("end_slot:N", title="End turno"),
-                alt.Tooltip("start_min:Q", title="Start min cal"),
-                alt.Tooltip("end_min:Q", title="End min cal"),
+                alt.Tooltip("start_at:T", title="Inizio"),
+                alt.Tooltip("end_at:T", title="Fine"),
+                alt.Tooltip("due_at:T", title="Scadenza"),
                 alt.Tooltip("tardy_min:Q", title="Ritardo min"),
             ],
         )
@@ -1145,11 +1092,6 @@ def render_enterprise_planner():
             f"Calendario: turno={cal['shift_minutes']} min | giorno={cal['day_minutes']} min | inizio turno={cal['shift_start_min']} min (06:00)"
         )
 
-    orders = mgr.get_scheduler_orders(limit=500)
-    if orders:
-        st.markdown('<div class="section-title">Backlog ordini</div>', unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(orders), width="stretch", hide_index=True)
-
     runs = mgr.get_recent_runs(limit=50)
     if not runs:
         st.info("Nessun run disponibile.")
@@ -1180,20 +1122,14 @@ def render_enterprise_planner():
         st.warning("Questo run non ha orari reali. Rigenera il piano con la nuova logica a turni.")
         return
 
-    if "start_at" in df_tasks.columns and "end_at" in df_tasks.columns:
-        view = df_tasks.copy()
-        view["start_at"] = pd.to_datetime(view["start_at"], errors="coerce")
-        view["end_at"] = pd.to_datetime(view["end_at"], errors="coerce")
-        view["Inizio"] = view["start_at"].dt.strftime("%d/%m %H:%M").fillna("-")
-        view["Fine"] = view["end_at"].dt.strftime("%d/%m %H:%M").fillna("-")
-        show_cols = [c for c in ["order_id", "code", "line_id", "qty", "Inizio", "Fine", "setup_min", "tardy_min"] if c in view.columns]
-        st.markdown('<div class="section-title">Tabella schedulazione (orario reale)</div>', unsafe_allow_html=True)
-        st.dataframe(view[show_cols], width="stretch", hide_index=True)
-
     sched_lines = mgr.get_scheduler_lines()
     line_domain = [x["line_id"] for x in sched_lines] if sched_lines else None
 
-    st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), width="stretch")
+    gantt = grafico_schedulazione_tasks(df_tasks, all_lines=line_domain)
+    if gantt is None:
+        st.warning("Grafico non disponibile: mancano date/ore reali nei task del run.")
+    else:
+        st.altair_chart(gantt, width="stretch")
 
     edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_at", "end_at", "due_date"]
     df_edit = df_tasks[edit_cols].copy()
@@ -1228,7 +1164,12 @@ def render_enterprise_planner():
         if not unscheduled:
             st.caption("Nessun ordine non schedulato.")
         else:
-            st.dataframe(pd.DataFrame(unscheduled), width="stretch", hide_index=True)
+            for u in unscheduled:
+                oid = u.get("order_id", "-")
+                code = u.get("code", "-")
+                qty = u.get("qty", 0)
+                reason = u.get("reason", "")
+                st.write(f"- {oid} | {code} | qta={qty} | {reason}")
 
 
 def render_scheduler_section():
