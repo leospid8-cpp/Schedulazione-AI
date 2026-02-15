@@ -72,6 +72,56 @@ def _table_exists(cursor, table: str) -> bool:
     return bool(cursor.fetchone()[0])
 
 
+def _get_table_columns(cursor, table: str) -> set[str]:
+    cursor.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+        """,
+        (table,),
+    )
+    return {r[0] for r in cursor.fetchall()}
+
+
+def _calendar_cfg_from_dataset(dataset: Dict[str, Any]) -> Dict[str, float]:
+    raw = dataset.get("calendar", {}) if isinstance(dataset, dict) else {}
+    shift_minutes = _to_float(raw.get("shift_minutes"), 480.0)
+    day_minutes = _to_float(raw.get("day_minutes"), 1440.0)
+    shift_start_min = _to_float(raw.get("shift_start_min"), 0.0)
+    if shift_minutes <= 0:
+        shift_minutes = 480.0
+    if day_minutes < shift_minutes:
+        day_minutes = max(shift_minutes, 1440.0)
+    if shift_start_min < 0:
+        shift_start_min = 0.0
+    if shift_start_min >= day_minutes:
+        shift_start_min = 0.0
+    return {
+        "shift_minutes": shift_minutes,
+        "day_minutes": day_minutes,
+        "shift_start_min": shift_start_min,
+    }
+
+
+def _upsert_shift_config(cursor, dataset: Dict[str, Any]):
+    if not _table_exists(cursor, "sched_shift_config"):
+        return
+    cfg = _calendar_cfg_from_dataset(dataset)
+    cursor.execute(
+        """
+        INSERT INTO public.sched_shift_config(config_id, shift_minutes, day_minutes, shift_start_min)
+        VALUES (1, %s, %s, %s)
+        ON CONFLICT (config_id) DO UPDATE SET
+          shift_minutes = EXCLUDED.shift_minutes,
+          day_minutes = EXCLUDED.day_minutes,
+          shift_start_min = EXCLUDED.shift_start_min,
+          updated_at = now()
+        """,
+        (cfg["shift_minutes"], cfg["day_minutes"], cfg["shift_start_min"]),
+    )
+
+
 def _insert_lines(cursor, lines: List[Dict[str, Any]]):
     rows = [(str(l["line_id"]),) for l in lines if l.get("line_id")]
     if not rows:
@@ -268,6 +318,7 @@ def import_scheduler_input(cursor, dataset: Dict[str, Any]):
     _refresh_setup_from_current(cursor, setup_minutes.get("from_current", {}))
     order_codes = sorted({str(o.get("code", "")) for o in orders if o.get("code")})
     _refresh_setup_between_codes(cursor, setup_minutes.get("between_codes", {}), order_codes)
+    _upsert_shift_config(cursor, dataset)
 
 
 def persist_run(cursor, result: Dict[str, Any]) -> int:
@@ -279,59 +330,106 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
     scheduled_orders = _to_int(kpi.get("scheduled_orders"), len(tasks))
     unscheduled_orders = _to_int(kpi.get("unscheduled_orders"), len(unscheduled))
 
+    run_cols = _get_table_columns(cursor, "sched_runs")
+    calendar = _calendar_cfg_from_dataset(result)
+
+    insert_cols = [
+        "strategy",
+        "total_orders",
+        "scheduled_orders",
+        "unscheduled_orders",
+        "total_tardy_min",
+        "total_setup_min",
+        "makespan_min",
+        "avg_completion_min",
+    ]
+    values = [
+        str(result.get("strategy", "")),
+        total_orders,
+        scheduled_orders,
+        unscheduled_orders,
+        _to_float(kpi.get("total_tardy_min"), 0.0),
+        _to_float(kpi.get("total_setup_min"), 0.0),
+        _to_float(kpi.get("makespan_min"), 0.0),
+        _to_float(kpi.get("avg_completion_min"), 0.0),
+    ]
+
+    if "shift_minutes" in run_cols:
+        insert_cols.append("shift_minutes")
+        values.append(calendar["shift_minutes"])
+    if "day_minutes" in run_cols:
+        insert_cols.append("day_minutes")
+        values.append(calendar["day_minutes"])
+    if "shift_start_min" in run_cols:
+        insert_cols.append("shift_start_min")
+        values.append(calendar["shift_start_min"])
+
     cursor.execute(
-        """
-        INSERT INTO public.sched_runs(
-          strategy,
-          total_orders,
-          scheduled_orders,
-          unscheduled_orders,
-          total_tardy_min,
-          total_setup_min,
-          makespan_min,
-          avg_completion_min
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        f"""
+        INSERT INTO public.sched_runs({", ".join(insert_cols)})
+        VALUES ({", ".join(["%s"] * len(insert_cols))})
         RETURNING run_id
         """,
-        (
-            str(result.get("strategy", "")),
-            total_orders,
-            scheduled_orders,
-            unscheduled_orders,
-            _to_float(kpi.get("total_tardy_min"), 0.0),
-            _to_float(kpi.get("total_setup_min"), 0.0),
-            _to_float(kpi.get("makespan_min"), 0.0),
-            _to_float(kpi.get("avg_completion_min"), 0.0),
-        ),
+        tuple(values),
     )
     run_id = _to_int(cursor.fetchone()[0])
 
+    task_cols = _get_table_columns(cursor, "sched_tasks")
+    base_cols = [
+        "run_id",
+        "order_id",
+        "code",
+        "line_id",
+        "qty",
+        "setup_min",
+        "start_min",
+        "end_min",
+        "tardy_min",
+        "due_date",
+    ]
+    optional_cols = []
+    for col in [
+        "start_work_min",
+        "end_work_min",
+        "due_work_min",
+        "start_day",
+        "end_day",
+        "start_shift_min",
+        "end_shift_min",
+    ]:
+        if col in task_cols:
+            optional_cols.append(col)
+    insert_task_cols = base_cols + optional_cols
+
     task_rows = []
     for t in tasks:
-        task_rows.append(
-            (
-                run_id,
-                str(t.get("order_id", "")),
-                str(t.get("code", "")),
-                str(t.get("line_id", "")),
-                _to_int(t.get("qty"), 0),
-                _to_float(t.get("setup_min"), 0.0),
-                _to_float(t.get("start_min"), 0.0),
-                _to_float(t.get("end_min"), 0.0),
-                _to_float(t.get("tardy_min"), 0.0),
-                t.get("due_date"),
-            )
-        )
+        row_map = {
+            "run_id": run_id,
+            "order_id": str(t.get("order_id", "")),
+            "code": str(t.get("code", "")),
+            "line_id": str(t.get("line_id", "")),
+            "qty": _to_int(t.get("qty"), 0),
+            "setup_min": _to_float(t.get("setup_min"), 0.0),
+            "start_min": _to_float(t.get("start_min"), 0.0),
+            "end_min": _to_float(t.get("end_min"), 0.0),
+            "tardy_min": _to_float(t.get("tardy_min"), 0.0),
+            "due_date": t.get("due_date"),
+            "start_work_min": _to_float(t.get("start_work_min"), 0.0),
+            "end_work_min": _to_float(t.get("end_work_min"), 0.0),
+            "due_work_min": _to_float(t.get("due_work_min"), 0.0),
+            "start_day": _to_int(t.get("start_day"), 0),
+            "end_day": _to_int(t.get("end_day"), 0),
+            "start_shift_min": _to_float(t.get("start_shift_min"), 0.0),
+            "end_shift_min": _to_float(t.get("end_shift_min"), 0.0),
+        }
+        task_rows.append(tuple(row_map[c] for c in insert_task_cols))
 
     if task_rows:
         execute_batch(
             cursor,
-            """
-            INSERT INTO public.sched_tasks(
-              run_id, order_id, code, line_id, qty, setup_min, start_min, end_min, tardy_min, due_date
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            f"""
+            INSERT INTO public.sched_tasks({", ".join(insert_task_cols)})
+            VALUES ({", ".join(["%s"] * len(insert_task_cols))})
             """,
             task_rows,
             page_size=1000,
@@ -364,15 +462,25 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
 
 
 def run_requested_strategies(dataset: Dict[str, Any], strategy: str) -> List[Dict[str, Any]]:
+    calendar = _calendar_cfg_from_dataset(dataset)
+
+    def _with_calendar(result: Dict[str, Any]) -> Dict[str, Any]:
+        result["calendar"] = calendar
+        return result
+
     if strategy == "due_date":
-        return [run_due_date(dataset)]
+        return [_with_calendar(run_due_date(dataset))]
     if strategy == "min_setup":
-        return [run_min_setup(dataset)]
+        return [_with_calendar(run_min_setup(dataset))]
     if strategy == "balanced":
-        return [run_balanced(dataset)]
+        return [_with_calendar(run_balanced(dataset))]
     if strategy == "both":
-        return [run_due_date(dataset), run_min_setup(dataset)]
-    return [run_due_date(dataset), run_min_setup(dataset), run_balanced(dataset)]
+        return [_with_calendar(run_due_date(dataset)), _with_calendar(run_min_setup(dataset))]
+    return [
+        _with_calendar(run_due_date(dataset)),
+        _with_calendar(run_min_setup(dataset)),
+        _with_calendar(run_balanced(dataset)),
+    ]
 
 
 def main():

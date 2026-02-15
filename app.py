@@ -389,6 +389,24 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
     chart_df = df_tasks.copy()
     chart_df["line_id"] = chart_df["line_id"].astype(str)
     chart_df["code"] = chart_df["code"].astype(str)
+    chart_df["start_min"] = pd.to_numeric(chart_df["start_min"], errors="coerce").fillna(0.0)
+    chart_df["end_min"] = pd.to_numeric(chart_df["end_min"], errors="coerce").fillna(0.0)
+
+    if "start_day" in chart_df.columns and "start_shift_min" in chart_df.columns:
+        chart_df["start_slot"] = chart_df.apply(
+            lambda r: f"G{int(float(r['start_day']))} {int(float(r['start_shift_min'])//60):02d}:{int(float(r['start_shift_min'])%60):02d}",
+            axis=1,
+        )
+    else:
+        chart_df["start_slot"] = chart_df["start_min"].map(lambda v: f"{float(v):.1f} min")
+
+    if "end_day" in chart_df.columns and "end_shift_min" in chart_df.columns:
+        chart_df["end_slot"] = chart_df.apply(
+            lambda r: f"G{int(float(r['end_day']))} {int(float(r['end_shift_min'])//60):02d}:{int(float(r['end_shift_min'])%60):02d}",
+            axis=1,
+        )
+    else:
+        chart_df["end_slot"] = chart_df["end_min"].map(lambda v: f"{float(v):.1f} min")
 
     if all_lines:
         y_domain = sorted({str(x) for x in all_lines})
@@ -402,7 +420,7 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
         alt.Chart(chart_df)
         .mark_bar()
         .encode(
-            x=alt.X("start_min:Q", title="Timeline (minuti)"),
+            x=alt.X("start_min:Q", title="Timeline calendario (min)"),
             x2="end_min:Q",
             y=alt.Y("line_id:N", title="Linea", sort=y_domain, scale=alt.Scale(domain=y_domain)),
             color=alt.Color("code:N", title="Codice"),
@@ -412,8 +430,10 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
                 alt.Tooltip("line_id:N", title="Linea"),
                 alt.Tooltip("qty:Q", title="Qta"),
                 alt.Tooltip("setup_min:Q", title="Setup min"),
-                alt.Tooltip("start_min:Q", title="Start min"),
-                alt.Tooltip("end_min:Q", title="End min"),
+                alt.Tooltip("start_slot:N", title="Start turno"),
+                alt.Tooltip("end_slot:N", title="End turno"),
+                alt.Tooltip("start_min:Q", title="Start min cal"),
+                alt.Tooltip("end_min:Q", title="End min cal"),
                 alt.Tooltip("tardy_min:Q", title="Ritardo min"),
             ],
         )
@@ -1070,9 +1090,13 @@ def render_enterprise_planner():
                 st.error(f"Errore planner: {e}")
     with c2:
         stats = mgr.get_input_stats()
+        cal = mgr.get_scheduler_calendar_config()
         st.write(
             f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
             f"Run: **{stats['sched_runs']}** | Task: **{stats['sched_tasks']}**"
+        )
+        st.caption(
+            f"Calendario: turno={cal['shift_minutes']} min | giorno={cal['day_minutes']} min | inizio turno={cal['shift_start_min']} min"
         )
 
     orders = mgr.get_scheduler_orders(limit=500)
@@ -1098,7 +1122,7 @@ def render_enterprise_planner():
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Strategia", row["strategy"])
     m2.metric("Schedulati", row["scheduled_orders"])
-    m3.metric("Ritardo tot min", f"{row['total_tardy_min']}")
+    m3.metric("Ritardo tot min (lav.)", f"{row['total_tardy_min']}")
     m4.metric("Setup tot min", f"{row['total_setup_min']}")
 
     tasks = mgr.get_tasks_for_run(int(selected_run_id))
