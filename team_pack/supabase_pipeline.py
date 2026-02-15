@@ -33,7 +33,7 @@ def ensure_strategy_constraint(cursor):
         """
         ALTER TABLE public.sched_runs
         ADD CONSTRAINT sched_runs_strategy_check
-        CHECK (strategy IN ('due_date', 'min_setup', 'balanced'));
+        CHECK (strategy IN ('due_date', 'min_setup', 'balanced', 'manual'));
         """
     )
 
@@ -56,6 +56,20 @@ def _delete_by_text_keys(cursor, table: str, column: str, keys: Sequence[str]):
     if not keys:
         return
     cursor.execute(f"DELETE FROM public.{table} WHERE {column} = ANY(%s)", (list(keys),))
+
+
+def _table_exists(cursor, table: str) -> bool:
+    cursor.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = %s
+        )
+        """,
+        (table,),
+    )
+    return bool(cursor.fetchone()[0])
 
 
 def _insert_lines(cursor, lines: List[Dict[str, Any]]):
@@ -133,9 +147,9 @@ def _refresh_eligible_lines(cursor, orders: List[Dict[str, Any]]):
     )
 
 
-def _refresh_cycle_times(cursor, orders: List[Dict[str, Any]]):
+def _refresh_cycle_times(cursor, orders: List[Dict[str, Any]], cycle_table: str):
     codes = sorted({str(o.get("code", "")) for o in orders if o.get("code")})
-    _delete_by_text_keys(cursor, "sched_cycle_times", "code", codes)
+    _delete_by_text_keys(cursor, cycle_table, "code", codes)
 
     rows = []
     for o in orders:
@@ -153,11 +167,11 @@ def _refresh_cycle_times(cursor, orders: List[Dict[str, Any]]):
     execute_batch(
         cursor,
         """
-        INSERT INTO public.sched_cycle_times(code, line_id, cycle_min_per_piece)
+        INSERT INTO public.{cycle_table}(code, line_id, cycle_min_per_piece)
         VALUES (%s, %s, %s)
         ON CONFLICT (code, line_id) DO UPDATE SET
           cycle_min_per_piece = EXCLUDED.cycle_min_per_piece
-        """,
+        """.replace("{cycle_table}", cycle_table),
         rows,
         page_size=1000,
     )
@@ -179,8 +193,7 @@ def _refresh_current_config(cursor, current_config: Dict[str, Dict[str, Any]]):
         VALUES (%s, %s, %s)
         ON CONFLICT (line_id) DO UPDATE SET
           current_code = EXCLUDED.current_code,
-          loaded_qty = EXCLUDED.loaded_qty,
-          updated_at = now()
+          loaded_qty = EXCLUDED.loaded_qty
         """,
         rows,
         page_size=500,
@@ -249,7 +262,8 @@ def import_scheduler_input(cursor, dataset: Dict[str, Any]):
     _insert_lines(cursor, lines)
     _insert_orders(cursor, orders)
     _refresh_eligible_lines(cursor, orders)
-    _refresh_cycle_times(cursor, orders)
+    cycle_table = "sched_cycle_times" if _table_exists(cursor, "sched_cycle_times") else "sched_cycle_lines"
+    _refresh_cycle_times(cursor, orders, cycle_table)
     _refresh_current_config(cursor, current_cfg)
     _refresh_setup_from_current(cursor, setup_minutes.get("from_current", {}))
     order_codes = sorted({str(o.get("code", "")) for o in orders if o.get("code")})

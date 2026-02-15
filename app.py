@@ -90,6 +90,10 @@ if "page" not in st.session_state:
     st.session_state.page = "home"  # home | linea
 if "selected_linea_id" not in st.session_state:
     st.session_state.selected_linea_id = 1
+if "app_section" not in st.session_state:
+    st.session_state.app_section = "home"  # home | scada | graphs | planner | linea_detail
+if "app_nav_choice" not in st.session_state:
+    st.session_state.app_nav_choice = "Home"
 
 
 #
@@ -97,12 +101,16 @@ if "selected_linea_id" not in st.session_state:
 #
 def goto_home():
     st.session_state.page = "home"
+    st.session_state.app_section = "home"
+    st.session_state.app_nav_choice = "Home"
     st.rerun()
 
 
 def goto_linea(linea_id: int):
     st.session_state.page = "linea"
     st.session_state.selected_linea_id = int(linea_id)
+    st.session_state.app_section = "linea_detail"
+    st.session_state.app_nav_choice = "SCADA"
     st.rerun()
 
 
@@ -291,6 +299,18 @@ def build_range(range_key: str):
     return today - timedelta(days=6), today
 
 
+def parse_date_range_input(value):
+    """
+    Normalizza l'output di st.date_input in una coppia (start_day, end_day).
+    """
+    if isinstance(value, (tuple, list)):
+        if len(value) >= 2:
+            return value[0], value[1]
+        if len(value) == 1:
+            return value[0], value[0]
+    return value, value
+
+
 def produzione_df(linea_id: int, start_day: date, end_day: date) -> pd.DataFrame:
     """
     Ritorna dataframe completo (tutti i giorni nel range, anche se 0):
@@ -404,6 +424,541 @@ def grafico_schedulazione_tasks(df_tasks: pd.DataFrame, all_lines: list[str] | N
         .properties(height=height)
         .interactive()
     )
+
+
+def apply_enterprise_theme():
+    st.markdown(
+        """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-1: #f4f7fb;
+  --bg-2: #eef4f1;
+  --panel: #ffffff;
+  --ink: #152033;
+  --muted: #5f6b7a;
+  --accent: #0b6bcb;
+  --accent-2: #118a6f;
+  --danger: #bf3b3b;
+  --stroke: #d8e1eb;
+}
+
+html, body, [class*="css"] {
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.stApp {
+  background: linear-gradient(150deg, var(--bg-1), var(--bg-2));
+}
+
+.card-kpi {
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.section-sub {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+div[data-testid="stDataFrame"] {
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.bottom-nav-wrap {
+  position: sticky;
+  bottom: 0;
+  background: rgba(255,255,255,0.92);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 8px 10px 2px 10px;
+  backdrop-filter: blur(7px);
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_bottom_nav():
+    st.markdown('<div class="bottom-nav-wrap">', unsafe_allow_html=True)
+    labels = ["Home", "SCADA", "Grafici", "Planner"]
+    section_to_label = {
+        "home": "Home",
+        "scada": "SCADA",
+        "graphs": "Grafici",
+        "planner": "Planner",
+        "linea_detail": "SCADA",
+    }
+    label_to_section = {
+        "Home": "home",
+        "SCADA": "scada",
+        "Grafici": "graphs",
+        "Planner": "planner",
+    }
+
+    current_label = section_to_label.get(st.session_state.get("app_section", "home"), "Home")
+    if st.session_state.get("app_nav_choice") not in labels:
+        st.session_state.app_nav_choice = current_label
+
+    chosen = st.radio(
+        "Navigation",
+        options=labels,
+        key="app_nav_choice",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    new_section = label_to_section[chosen]
+    if new_section != st.session_state.get("app_section"):
+        st.session_state.app_section = new_section
+        st.rerun()
+
+
+def render_home_chat_panel():
+    global model, _ai_key_index
+
+    st.markdown('<div class="section-title">AI Factory Manager</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Chat operativa per informazioni e comandi linea.</div>', unsafe_allow_html=True)
+
+    if model is None:
+        st.info("AI non disponibile: configura GOOGLE_API_KEY in secrets.")
+        return
+
+    linee = st.session_state.linea_mgr.get_status()
+    context_lines = "\n".join(
+        [
+            f"- L{l['id']} ({l['nome']}): Stato {l['stato']} | Ordine: {l['target_assegnato']} | Prod: {l['pezzi_fatti']}"
+            for l in linee
+        ]
+    )
+    context_orders = st.session_state.ordine_mgr.get_ordini_text()
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Ciao. Posso aiutarti con schedulazione e stato linee."}
+        ]
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+    prompt = st.chat_input("Scrivi un comando o una domanda...", key="enterprise_chat_input")
+    if not prompt:
+        return
+
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    full_prompt = f"""
+Sei il Responsabile Produzione.
+
+DATI LIVE:
+{context_lines}
+
+ORDINI ATTIVI:
+{context_orders}
+
+VINCOLI:
+L1: Porsche/Mercedes | L2,L3: Ferrari/Audi | L4,L5: Jolly.
+
+DOMANDA UTENTE: {prompt}
+
+ISTRUZIONI:
+1) Se chiedono INFO: rispondi a parole.
+2) Se chiedono AZIONI (schedula, sposta, ferma, avvia): genera SOLO JSON.
+   Formato JSON: [{{"comando":"assegna_linea","linea_id":1,"codice_ordine":"ORD-01"}}]
+   Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id).
+"""
+
+    with st.spinner("Analisi..."):
+        try:
+            try:
+                response = model.generate_content(full_prompt)
+            except Exception as e:
+                if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
+                    _ai_key_index += 1
+                    model = make_model(_ai_keys[_ai_key_index])
+                    response = model.generate_content(full_prompt)
+                else:
+                    raise
+            answ = response.text.strip()
+
+            json_found = None
+            if "```json" in answ:
+                s = answ.find("```json") + 7
+                e = answ.find("```", s)
+                json_found = answ[s:e].strip()
+            elif answ.startswith("[") and answ.endswith("]"):
+                json_found = answ
+
+            if json_found:
+                report = esegui_azioni_ai(json_found)
+                st.session_state.messages.append({"role": "assistant", "content": report})
+            else:
+                st.session_state.messages.append({"role": "assistant", "content": answ})
+        except Exception as e:
+            st.session_state.messages.append({"role": "assistant", "content": f"Errore AI: {e}"})
+    st.rerun()
+
+
+def render_enterprise_home():
+    st.title("MES Enterprise Control Room")
+    st.caption("Panoramica turno, chat operativa e ordini in lavorazione.")
+
+    tot_prodotti = st.session_state.linea_mgr.get_totale_produzione()
+    tot_target = st.session_state.ordine_mgr.get_totale_target()
+    ordini_raw = st.session_state.ordine_mgr.get_ordini()
+    progress_dict = st.session_state.linea_mgr.get_produzione_per_ordine()
+    mancanti = max(tot_target - tot_prodotti, 0)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown('<div class="card-kpi">', unsafe_allow_html=True)
+        st.metric("Pezzi fatti oggi", tot_prodotti)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="card-kpi">', unsafe_allow_html=True)
+        st.metric("Obiettivo totale", tot_target)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="card-kpi">', unsafe_allow_html=True)
+        st.metric("Pezzi mancanti", mancanti)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if tot_target > 0:
+        p = min(tot_prodotti / tot_target, 1.0)
+        st.progress(p, text=f"Avanzamento turno: {int(p*100)}%")
+
+    left, right = st.columns([2.1, 1.2])
+    with left:
+        render_home_chat_panel()
+    with right:
+        st.markdown('<div class="section-title">Ordini in lavorazione</div>', unsafe_allow_html=True)
+        if not ordini_raw:
+            st.caption("Nessun ordine attivo.")
+        else:
+            order_rows = []
+            for o in ordini_raw:
+                codice = o["codice"]
+                target = int(o["quantita"])
+                fatti = int(progress_dict.get(codice, 0))
+                perc = int((fatti / target) * 100) if target > 0 else 0
+                order_rows.append(
+                    {
+                        "Ordine": codice,
+                        "Modello": o["modello"],
+                        "Fatti": fatti,
+                        "Target": target,
+                        "Avanz. %": perc,
+                    }
+                )
+            st.dataframe(pd.DataFrame(order_rows), use_container_width=True, hide_index=True)
+
+
+def _latest_planned_code_by_line(mgr):
+    out = {}
+    if mgr is None:
+        return out
+    runs = mgr.get_recent_runs(limit=1)
+    if not runs:
+        return out
+    tasks = mgr.get_tasks_for_run(int(runs[0]["run_id"]))
+    for t in tasks:
+        lid = str(t["line_id"])
+        if lid not in out:
+            out[lid] = t["code"]
+    return out
+
+
+def _line_aliases(linea_id: int):
+    return {
+        str(linea_id),
+        f"L{linea_id}",
+        f"L{linea_id:02d}",
+        f"LM{linea_id}",
+        f"LM{linea_id:02d}",
+    }
+
+
+def _sort_line_id_key(line_id: str):
+    digits = "".join([c for c in str(line_id) if c.isdigit()])
+    return (int(digits) if digits else 10**9, str(line_id))
+
+
+def render_enterprise_scada():
+    st.title("SCADA Live Overview")
+    st.caption("Stato linee, contatori, codice in lavorazione e controlli rapidi.")
+
+    mgr = st.session_state.get("scheduler_mgr")
+    planned_by_line = _latest_planned_code_by_line(mgr)
+    live_lines = st.session_state.linea_mgr.get_status()
+    scheduler_lines = mgr.get_scheduler_lines() if mgr else []
+    scheduler_ids = [str(x["line_id"]) for x in scheduler_lines] if scheduler_lines else []
+
+    live_by_scheduler_id = {}
+    for line in live_lines:
+        for alias in _line_aliases(int(line["id"])):
+            live_by_scheduler_id[alias] = line
+
+    display_ids = sorted(set(scheduler_ids), key=_sort_line_id_key)
+    if not display_ids:
+        display_ids = [f"L{int(l['id'])}" for l in live_lines]
+
+    top_c1, top_c2 = st.columns([1, 5])
+    with top_c1:
+        if st.button("Aggiorna", use_container_width=True, key="scada_refresh_btn"):
+            st.rerun()
+    with top_c2:
+        st.caption(f"Linee visualizzate: {len(display_ids)}")
+
+    cols = st.columns(3)
+    for idx, line_id in enumerate(display_ids):
+        live_line = live_by_scheduler_id.get(str(line_id))
+        col = cols[idx % 3]
+        with col:
+            with st.container(border=True):
+                if live_line:
+                    stato = live_line["stato"]
+                    status_color = "LIVE" if stato == "Attiva" else "STOP"
+                    codice_live = live_line["target_assegnato"] if live_line["target_assegnato"] else "-"
+                    st.markdown(f"**{line_id} - {live_line['nome']} ({status_color})**")
+                    st.caption(f"Stato: {stato} | Vincoli: {live_line['vincoli']}")
+                    st.write(f"Codice live: **{codice_live}**")
+                    st.write(f"Codice pianificato: **{planned_by_line.get(line_id, '-')}**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Buoni", int(live_line["pezzi_fatti"]))
+                    m2.metric("Scarti", int(live_line["pezzi_scarti"]))
+
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        if st.button("+10 OK", key=f"scada_ok_{live_line['id']}_{line_id}", use_container_width=True):
+                            st.session_state.linea_mgr.update_counts(live_line["id"], buoni=10)
+                            st.rerun()
+                    with b2:
+                        if st.button("+1 KO", key=f"scada_ko_{live_line['id']}_{line_id}", use_container_width=True):
+                            st.session_state.linea_mgr.update_counts(live_line["id"], scarti=1)
+                            st.rerun()
+
+                    b3, b4 = st.columns(2)
+                    with b3:
+                        if stato == "Attiva":
+                            if st.button("STOP", key=f"scada_stop_{live_line['id']}_{line_id}", use_container_width=True):
+                                st.session_state.linea_mgr.set_stato(live_line["id"], "Ferma", "Manuale")
+                                st.rerun()
+                        else:
+                            if st.button("START", key=f"scada_start_{live_line['id']}_{line_id}", use_container_width=True):
+                                st.session_state.linea_mgr.set_stato(live_line["id"], "Attiva", "")
+                                st.rerun()
+                    with b4:
+                        if st.button("Dettaglio", key=f"scada_det_{live_line['id']}_{line_id}", use_container_width=True):
+                            goto_linea(live_line["id"])
+                else:
+                    st.markdown(f"**{line_id} - Solo schedulazione**")
+                    st.caption("Linea presente in sched_lines ma non in telemetria live.")
+                    st.write(f"Codice pianificato: **{planned_by_line.get(line_id, '-')}**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Stato", "n/d")
+                    m2.metric("Produzione", "n/d")
+                    st.caption("Per controlli live collega questa linea a linee_produttive.")
+
+
+def render_enterprise_graphs():
+    st.title("Analytics & Confronto Linee")
+    st.caption("Seleziona una o più linee per confronto storico e performance.")
+
+    lines = st.session_state.linea_mgr.get_status()
+    line_map = {str(l["id"]): l["nome"] for l in lines}
+    line_options = sorted(line_map.keys(), key=lambda x: int(x))
+    default_sel = line_options[:2] if len(line_options) >= 2 else line_options
+
+    selected = st.multiselect(
+        "Linee da confrontare",
+        options=line_options,
+        default=default_sel,
+        format_func=lambda lid: f"L{lid} - {line_map[lid]}",
+        key="graphs_selected_lines",
+    )
+    if not selected:
+        st.info("Seleziona almeno una linea.")
+        return
+
+    rng_col1, rng_col2 = st.columns([1.3, 2.7])
+    with rng_col1:
+        range_key = st.radio("Range", ["1g", "7g", "1m", "1a", "custom"], horizontal=True, key="graphs_range_key")
+    with rng_col2:
+        if range_key == "custom":
+            raw_range = st.date_input(
+                "Intervallo",
+                value=(date.today() - timedelta(days=6), date.today()),
+                key="graphs_custom_dates",
+            )
+            start_day, end_day = parse_date_range_input(raw_range)
+        else:
+            start_day, end_day = build_range(range_key)
+            st.write(f"Intervallo: **{start_day} -> {end_day}**")
+
+    frames = []
+    summary = []
+    for lid in selected:
+        df = produzione_df(int(lid), start_day, end_day)
+        df["linea"] = f"L{lid}"
+        frames.append(df)
+        summary.append(
+            {
+                "Linea": f"L{lid}",
+                "Nome": line_map[lid],
+                "OK": int(df["ok"].sum()),
+                "KO": int(df["ko"].sum()),
+                "Target": int(df["target_ok"].sum()),
+                "Media OK/g": round(float(df["ok"].mean()), 2),
+            }
+        )
+
+    all_df = pd.concat(frames, ignore_index=True)
+    all_df["giorno"] = pd.to_datetime(all_df["giorno"])
+
+    ok_chart = (
+        alt.Chart(all_df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("giorno:T", title="Giorno"),
+            y=alt.Y("ok:Q", title="OK"),
+            color=alt.Color("linea:N", title="Linea"),
+            tooltip=["linea:N", "giorno:T", "ok:Q", "ko:Q", "target_ok:Q"],
+        )
+        .properties(height=300)
+        .interactive()
+    )
+    st.altair_chart(ok_chart, use_container_width=True)
+
+    bar_df = pd.DataFrame(summary)
+    bar_chart = (
+        alt.Chart(bar_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Linea:N", title="Linea"),
+            y=alt.Y("OK:Q", title="Totale OK"),
+            color=alt.Color("Linea:N", legend=None),
+            tooltip=["Linea:N", "Nome:N", "OK:Q", "KO:Q", "Target:Q"],
+        )
+        .properties(height=260)
+    )
+    st.altair_chart(bar_chart, use_container_width=True)
+    st.dataframe(bar_df, use_container_width=True, hide_index=True)
+
+
+def render_enterprise_planner():
+    st.title("Planner Ordini & Gantt Schedulazione")
+    st.caption("Vista ordini, piano linee e modifica manuale da operatore.")
+
+    mgr = st.session_state.get("scheduler_mgr")
+    if mgr is None:
+        err = st.session_state.get("scheduler_init_error", "Scheduler non inizializzato.")
+        st.error(f"Planner non disponibile: {err}")
+        return
+
+    c1, c2 = st.columns([1.2, 2.8])
+    with c1:
+        strategy = st.selectbox(
+            "Strategia",
+            ["due_date", "min_setup", "balanced", "both", "all"],
+            key="planner_strategy",
+        )
+        if st.button("Genera nuovo piano", use_container_width=True, key="planner_run_btn"):
+            try:
+                res = mgr.run_scheduler(strategy=strategy)
+                run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
+                st.success(f"Piani salvati: {run_text}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Errore planner: {e}")
+    with c2:
+        stats = mgr.get_input_stats()
+        st.write(
+            f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
+            f"Run: **{stats['sched_runs']}** | Task: **{stats['sched_tasks']}**"
+        )
+
+    orders = mgr.get_scheduler_orders(limit=500)
+    if orders:
+        st.markdown('<div class="section-title">Backlog ordini</div>', unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(orders), use_container_width=True, hide_index=True)
+
+    runs = mgr.get_recent_runs(limit=50)
+    if not runs:
+        st.info("Nessun run disponibile.")
+        return
+
+    run_by_id = {r["run_id"]: r for r in runs}
+    run_ids = [r["run_id"] for r in runs]
+    selected_run_id = st.selectbox(
+        "Run piano",
+        run_ids,
+        format_func=lambda rid: f"Run {rid} | {run_by_id[rid]['strategy']} | {run_by_id[rid]['created_at']}",
+        key="planner_selected_run",
+    )
+
+    row = run_by_id[selected_run_id]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Strategia", row["strategy"])
+    m2.metric("Schedulati", row["scheduled_orders"])
+    m3.metric("Ritardo tot min", f"{row['total_tardy_min']}")
+    m4.metric("Setup tot min", f"{row['total_setup_min']}")
+
+    tasks = mgr.get_tasks_for_run(int(selected_run_id))
+    df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()
+    if df_tasks.empty:
+        st.warning("Il run selezionato non contiene task.")
+        return
+
+    sched_lines = mgr.get_scheduler_lines()
+    line_domain = [x["line_id"] for x in sched_lines] if sched_lines else None
+
+    st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), use_container_width=True)
+
+    edit_cols = ["order_id", "code", "line_id", "qty", "setup_min", "start_min", "end_min", "due_date"]
+    df_edit = df_tasks[edit_cols].copy()
+    line_options = line_domain if line_domain else sorted(df_edit["line_id"].astype(str).unique())
+
+    edited = st.data_editor(
+        df_edit,
+        use_container_width=True,
+        num_rows="fixed",
+        column_config={
+            "line_id": st.column_config.SelectboxColumn("line_id", options=line_options),
+            "qty": st.column_config.NumberColumn("qty", min_value=0, step=1),
+            "setup_min": st.column_config.NumberColumn("setup_min", min_value=0.0, step=0.1),
+            "start_min": st.column_config.NumberColumn("start_min", min_value=0.0, step=0.1),
+            "end_min": st.column_config.NumberColumn("end_min", min_value=0.0, step=0.1),
+        },
+        key="planner_editor",
+    )
+
+    if st.button("Salva come piano manuale", key="planner_save_manual_btn"):
+        try:
+            run_id = mgr.save_manual_run(edited.to_dict("records"))
+            st.success(f"Piano manuale salvato con run_id={run_id}")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Errore salvataggio piano manuale: {e}")
+
+    unscheduled = mgr.get_unscheduled_for_run(int(selected_run_id))
+    with st.expander("Ordini non schedulati", expanded=False):
+        if not unscheduled:
+            st.caption("Nessun ordine non schedulato.")
+        else:
+            st.dataframe(pd.DataFrame(unscheduled), use_container_width=True, hide_index=True)
 
 
 def render_scheduler_section():
@@ -775,8 +1330,11 @@ def render_linea_detail(linea_id: int):
         range_key = st.radio("Range tempo", ["1g", "7g", "1m", "1a", "custom"], horizontal=True)
     with col_r2:
         if range_key == "custom":
-            d1, d2 = st.date_input("Seleziona intervallo", value=(date.today() - timedelta(days=6), date.today()))
-            start_day, end_day = d1, d2
+            raw_range = st.date_input(
+                "Seleziona intervallo",
+                value=(date.today() - timedelta(days=6), date.today()),
+            )
+            start_day, end_day = parse_date_range_input(raw_range)
         else:
             start_day, end_day = build_range(range_key)
             st.write(f"Intervallo: **{start_day} → {end_day}**")
@@ -824,12 +1382,26 @@ def render_linea_detail(linea_id: int):
 
 
 #
-# cambio pagina
+# app router (enterprise)
 #
-if st.session_state.page == "home":
-    render_home()
-else:
+apply_enterprise_theme()
+
+section = st.session_state.get("app_section", "home")
+if section == "home":
+    render_enterprise_home()
+elif section == "scada":
+    render_enterprise_scada()
+elif section == "graphs":
+    render_enterprise_graphs()
+elif section == "planner":
+    render_enterprise_planner()
+elif section == "linea_detail":
     render_linea_detail(st.session_state.selected_linea_id)
+else:
+    st.session_state.app_section = "home"
+    render_enterprise_home()
+
+render_bottom_nav()
 
 
 
