@@ -559,9 +559,11 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .st-key-bottom_dock div[data-testid="stHorizontalBlock"] {
-  gap: 6px !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  column-gap: 6px !important;
+  row-gap: 0 !important;
   width: 100% !important;
-  justify-content: center !important;
   align-items: center !important;
 }
 
@@ -569,6 +571,15 @@ div[data-testid="stProgressBar"] > div > div {
   display: flex;
   justify-content: center;
   align-items: center;
+  width: 100% !important;
+}
+
+.st-key-bottom_dock div[data-testid="stColumn"] div[data-testid="stButton"] {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  margin: 0 !important;
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button {
@@ -590,6 +601,11 @@ div[data-testid="stProgressBar"] > div > div {
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button span[data-testid="stIconMaterial"] {
+  display: inline-flex !important;
+  width: 1.18em !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
   font-size: 1.52rem !important;
   line-height: 1 !important;
 }
