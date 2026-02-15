@@ -88,7 +88,7 @@ def _calendar_cfg_from_dataset(dataset: Dict[str, Any]) -> Dict[str, float]:
     raw = dataset.get("calendar", {}) if isinstance(dataset, dict) else {}
     shift_minutes = _to_float(raw.get("shift_minutes"), 480.0)
     day_minutes = _to_float(raw.get("day_minutes"), 1440.0)
-    shift_start_min = _to_float(raw.get("shift_start_min"), 0.0)
+    shift_start_min = _to_float(raw.get("shift_start_min"), 360.0)
     if shift_minutes <= 0:
         shift_minutes = 480.0
     if day_minutes < shift_minutes:
@@ -398,6 +398,7 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
         "end_shift_min",
         "start_at",
         "end_at",
+        "due_at",
     ]:
         if col in task_cols:
             optional_cols.append(col)
@@ -425,6 +426,7 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
             "end_shift_min": _to_float(t.get("end_shift_min"), 0.0),
             "start_at": t.get("start_at"),
             "end_at": t.get("end_at"),
+            "due_at": t.get("due_at"),
         }
         task_rows.append(tuple(row_map[c] for c in insert_task_cols))
 

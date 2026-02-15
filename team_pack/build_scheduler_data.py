@@ -497,7 +497,7 @@ def build_dataset(xlsx_path):
         "calendar": {
             "shift_minutes": 480,
             "day_minutes": 1440,
-            "shift_start_min": 0,
+            "shift_start_min": 360,
             "anchor_now": True,
         },
         "excel_context": {

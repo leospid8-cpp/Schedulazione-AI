@@ -39,6 +39,7 @@ class Task:
     end_shift_min: float
     start_at: str
     end_at: str
+    due_at: Optional[str]
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -67,7 +68,7 @@ def _calendar_config(dataset: Dict[str, Any]) -> Dict[str, float]:
     raw = dataset.get("calendar", {}) if isinstance(dataset, dict) else {}
     shift_minutes = _safe_float(raw.get("shift_minutes"), 480.0)
     day_minutes = _safe_float(raw.get("day_minutes"), 1440.0)
-    shift_start_min = _safe_float(raw.get("shift_start_min"), 0.0)
+    shift_start_min = _safe_float(raw.get("shift_start_min"), 360.0)
     anchor_now = bool(raw.get("anchor_now", True))
 
     if shift_minutes <= 0:
@@ -130,13 +131,22 @@ def _work_abs_to_parts(work_abs: float, cfg: Dict[str, float]) -> Dict[str, Any]
 
 def _compute_due_context(dataset: Dict[str, Any], cfg: Dict[str, float]) -> Dict[str, float]:
     shift_minutes = cfg["shift_minutes"]
-    due_minutes: Dict[str, float] = {}
+    serials: List[float] = []
     for o in dataset.get("orders", []):
         serial = _safe_float(o.get("due_serial"), 0.0)
         if serial <= 0:
             serial = _excel_serial_from_iso(o.get("due_date")) or 0.0
         if serial > 0:
-            due_minutes[o.get("order_id", "")] = serial * shift_minutes
+            serials.append(serial)
+    base_serial = min(serials) if serials else 0.0
+
+    due_minutes: Dict[str, float] = {}
+    for o in dataset.get("orders", []):
+        serial = _safe_float(o.get("due_serial"), 0.0)
+        if serial <= 0:
+            serial = _excel_serial_from_iso(o.get("due_date")) or 0.0
+        if serial > 0 and base_serial > 0:
+            due_minutes[o.get("order_id", "")] = cfg["anchor_work_abs"] + ((serial - base_serial + 1.0) * shift_minutes)
         else:
             due_minutes[o.get("order_id", "")] = float("inf")
     return due_minutes
@@ -231,6 +241,7 @@ def _tasks_to_dict(tasks: List[Task]) -> List[Dict[str, Any]]:
                 "end_shift_min": round(t.end_shift_min, 2),
                 "start_at": t.start_at,
                 "end_at": t.end_at,
+                "due_at": t.due_at,
             }
         )
     return out
@@ -239,6 +250,11 @@ def _tasks_to_dict(tasks: List[Task]) -> List[Dict[str, Any]]:
 def _build_task(order: Order, line_id: str, setup: float, start_work_abs: float, end_work_abs: float, tardy: float, cfg: Dict[str, float]) -> Task:
     s = _work_abs_to_parts(start_work_abs, cfg)
     e = _work_abs_to_parts(end_work_abs, cfg)
+
+    due_at = None
+    if math.isfinite(order.due_min):
+        d = _work_abs_to_parts(order.due_min, cfg)
+        due_at = d["at"].isoformat(timespec="minutes")
 
     return Task(
         order_id=order.order_id,
@@ -259,6 +275,7 @@ def _build_task(order: Order, line_id: str, setup: float, start_work_abs: float,
         end_shift_min=e["shift_min"],
         start_at=s["at"].isoformat(timespec="minutes"),
         end_at=e["at"].isoformat(timespec="minutes"),
+        due_at=due_at,
     )
 
 
