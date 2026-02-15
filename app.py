@@ -475,8 +475,8 @@ html, body, [class*="css"] {
 }
 
 [data-testid="stHeader"] {
-  background: linear-gradient(90deg, #1f2b40, #25354f) !important;
-  border-bottom: 1px solid #3f536f !important;
+  background: #020917 !important;
+  border-bottom: 1px solid #0a1730 !important;
 }
 
 [data-testid="stHeader"]::before {
