@@ -433,15 +433,16 @@ def apply_enterprise_theme():
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-1: #f4f7fb;
-  --bg-2: #eef4f1;
+  --bg-1: #eef3f9;
+  --bg-2: #e9f1ec;
   --panel: #ffffff;
-  --ink: #152033;
-  --muted: #5f6b7a;
+  --ink: #0f1b2d;
+  --muted: #4a5a70;
   --accent: #0b6bcb;
   --accent-2: #118a6f;
   --danger: #bf3b3b;
-  --stroke: #d8e1eb;
+  --stroke: #cfd8e3;
+  --soft: #f4f7fb;
 }
 
 html, body, [class*="css"] {
@@ -449,7 +450,20 @@ html, body, [class*="css"] {
 }
 
 .stApp {
-  background: linear-gradient(150deg, var(--bg-1), var(--bg-2));
+  background: linear-gradient(145deg, var(--bg-1), var(--bg-2));
+  color: var(--ink) !important;
+}
+
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+  color: var(--ink) !important;
+}
+
+.stApp p, .stApp li, .stApp label, .stApp span, .stApp small, .stApp div {
+  color: inherit;
+}
+
+.stApp a {
+  color: var(--accent) !important;
 }
 
 .card-kpi {
@@ -470,20 +484,92 @@ html, body, [class*="css"] {
   font-size: 0.9rem;
 }
 
+div[data-testid="stMetric"] {
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 8px 10px;
+}
+
+div[data-testid="stMetricLabel"] p {
+  color: var(--muted) !important;
+  font-weight: 600 !important;
+}
+
+div[data-testid="stMetricValue"] {
+  color: var(--ink) !important;
+}
+
+div[data-testid="stMarkdownContainer"] p,
+div[data-testid="stMarkdownContainer"] li,
+div[data-testid="stMarkdownContainer"] span {
+  color: var(--ink) !important;
+}
+
+div[data-testid="stChatMessage"] {
+  background: rgba(255,255,255,0.78);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+}
+
+div[data-testid="stChatMessageContent"] * {
+  color: var(--ink) !important;
+}
+
+div[data-testid="stChatInput"] textarea,
+div[data-testid="stChatInput"] input {
+  color: var(--ink) !important;
+  background: var(--panel) !important;
+}
+
+div[data-testid="stChatInput"] textarea::placeholder,
+div[data-testid="stChatInput"] input::placeholder {
+  color: var(--muted) !important;
+  opacity: 1 !important;
+}
+
 div[data-testid="stDataFrame"] {
   border: 1px solid var(--stroke);
   border-radius: 12px;
   overflow: hidden;
 }
 
+div[data-testid="stDataFrame"] * {
+  color: var(--ink) !important;
+}
+
+div[data-testid="stProgressBar"] > div > div {
+  background-color: var(--accent) !important;
+}
+
 .bottom-nav-wrap {
   position: sticky;
   bottom: 0;
-  background: rgba(255,255,255,0.92);
+  background: rgba(255,255,255,0.97);
   border: 1px solid var(--stroke);
   border-radius: 14px;
-  padding: 8px 10px 2px 10px;
+  padding: 10px 10px 4px 10px;
   backdrop-filter: blur(7px);
+}
+
+.bottom-nav-wrap div[role="radiogroup"] {
+  gap: 8px;
+}
+
+.bottom-nav-wrap div[role="radiogroup"] label {
+  background: var(--soft);
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  padding: 2px 12px;
+}
+
+.bottom-nav-wrap div[role="radiogroup"] label p {
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+}
+
+.bottom-nav-wrap input[type="radio"] {
+  accent-color: var(--accent);
 }
 </style>
         """,
