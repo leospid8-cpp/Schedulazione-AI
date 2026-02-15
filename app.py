@@ -580,9 +580,16 @@ div[data-testid="stProgressBar"] > div > div {
   display: inline-flex !important;
   justify-content: center !important;
   align-items: center !important;
-  font-size: 1.52rem !important;
+  font-size: 1.9rem !important;
   line-height: 1 !important;
   transition: all 0.2s ease;
+}
+
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button p,
+.st-key-bottom_dock [class*="st-key-dock_btn_"] button span {
+  margin: 0 !important;
+  font-size: 1.9rem !important;
+  line-height: 1 !important;
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button:hover {
