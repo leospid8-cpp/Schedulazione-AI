@@ -429,18 +429,17 @@ def apply_enterprise_theme():
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-1: #eff5fb;
-  --bg-2: #eef7f2;
+  --bg-1: #f8faf6;
+  --bg-2: #eef3ff;
   --panel: #ffffff;
-  --ink: #10203a;
-  --muted: #5f6f86;
-  --accent: #0a67d0;
-  --accent-2: #05a58a;
-  --danger: #bf3b3b;
-  --stroke: #d4dfeb;
-  --soft: #f4f8fd;
-  --shadow-soft: 0 10px 30px rgba(18, 33, 56, 0.08);
-  --shadow-card: 0 14px 28px rgba(17, 30, 50, 0.10);
+  --ink: #1a2538;
+  --muted: #6a778d;
+  --accent: #e06a2e;
+  --accent-2: #0b7da9;
+  --stroke: #dfe6f0;
+  --soft: #f6f9fd;
+  --shadow-soft: 0 8px 24px rgba(28, 42, 64, 0.08);
+  --shadow-card: 0 14px 28px rgba(25, 40, 60, 0.12);
 }
 
 html, body, [class*="css"] {
@@ -449,21 +448,11 @@ html, body, [class*="css"] {
 
 .stApp {
   background:
-    radial-gradient(1200px 560px at -8% -10%, rgba(69, 143, 255, 0.10), transparent 62%),
-    radial-gradient(980px 480px at 112% 0%, rgba(8, 189, 157, 0.08), transparent 60%),
+    radial-gradient(1200px 560px at -8% -12%, rgba(224, 106, 46, 0.10), transparent 62%),
+    radial-gradient(980px 480px at 112% 0%, rgba(11, 125, 169, 0.10), transparent 60%),
     linear-gradient(145deg, var(--bg-1), var(--bg-2)) !important;
   color: var(--ink) !important;
   overflow-x: clip;
-}
-
-.stApp::before,
-.stApp::after {
-  display: none !important;
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .block-container {
@@ -482,17 +471,16 @@ html, body, [class*="css"] {
 }
 
 .stApp a {
-  color: var(--accent) !important;
+  color: var(--accent-2) !important;
 }
 
 .card-kpi {
-  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(251, 254, 255, 0.94));
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 14px 16px;
   box-shadow: var(--shadow-soft);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  animation: fadeInUp 0.35s ease both;
 }
 
 .card-kpi:hover {
@@ -513,12 +501,11 @@ html, body, [class*="css"] {
 }
 
 div[data-testid="stMetric"] {
-  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250, 253, 255, 0.95));
+  background: linear-gradient(180deg, #ffffff, #f9fbff);
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 8px 10px;
   box-shadow: var(--shadow-soft);
-  animation: fadeInUp 0.35s ease both;
 }
 
 div[data-testid="stMetricLabel"] p {
@@ -539,12 +526,10 @@ div[data-testid="stMarkdownContainer"] span {
 }
 
 div[data-testid="stChatMessage"] {
-  background: rgba(255,255,255,0.88);
+  background: rgba(255,255,255,0.90);
   border: 1px solid var(--stroke);
   border-radius: 14px;
-  backdrop-filter: blur(3px);
   box-shadow: var(--shadow-soft);
-  animation: fadeInUp 0.25s ease both;
 }
 
 div[data-testid="stChatMessageContent"] * {
@@ -554,7 +539,7 @@ div[data-testid="stChatMessageContent"] * {
 div[data-testid="stChatInput"] textarea,
 div[data-testid="stChatInput"] input {
   color: var(--ink) !important;
-  background: rgba(255,255,255,0.95) !important;
+  background: rgba(255,255,255,0.96) !important;
   border: 1px solid var(--stroke) !important;
   border-radius: 14px !important;
 }
@@ -570,7 +555,6 @@ div[data-testid="stDataFrame"] {
   border-radius: 14px;
   overflow: hidden;
   box-shadow: var(--shadow-soft);
-  animation: fadeInUp 0.35s ease both;
 }
 
 div[data-testid="stDataFrame"] * {
@@ -584,7 +568,7 @@ div[data-testid="stProgressBar"] > div > div {
 div.stButton > button {
   border-radius: 12px !important;
   border: 1px solid var(--stroke) !important;
-  background: linear-gradient(180deg, #ffffff, #f3f8ff) !important;
+  background: linear-gradient(180deg, #ffffff, #f4f8ff) !important;
   color: var(--ink) !important;
   font-weight: 600 !important;
   box-shadow: var(--shadow-soft) !important;
@@ -593,7 +577,7 @@ div.stButton > button {
 
 div.stButton > button:hover {
   transform: translateY(-1px);
-  border-color: #a7bfd9 !important;
+  border-color: #c8d6e7 !important;
   box-shadow: var(--shadow-card) !important;
 }
 
@@ -604,12 +588,12 @@ div.stButton > button:hover {
   bottom: 10px;
   z-index: 9999;
   width: min(378px, calc(100vw - 22px));
-  background: linear-gradient(155deg, rgba(11, 22, 43, 0.94), rgba(9, 33, 67, 0.90));
-  border: 1px solid #27426c;
+  background: linear-gradient(160deg, rgba(28, 36, 52, 0.94), rgba(34, 45, 65, 0.92));
+  border: 1px solid #445169;
   border-radius: 16px;
   padding: 6px 8px;
-  box-shadow: 0 14px 30px rgba(9, 19, 36, 0.38);
-  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 30px rgba(18, 24, 36, 0.35);
+  backdrop-filter: blur(10px);
 }
 
 .st-key-bottom_dock > div {
@@ -632,9 +616,9 @@ div.stButton > button:hover {
   width: 50px !important;
   height: 50px !important;
   border-radius: 11px !important;
-  border: 1px solid #31578f !important;
-  background: linear-gradient(160deg, #132d53, #173664) !important;
-  color: #e8f2ff !important;
+  border: 1px solid #5b6c8a !important;
+  background: linear-gradient(160deg, #2e3d57, #344764) !important;
+  color: #f6f9ff !important;
   padding: 0 !important;
   display: inline-flex !important;
   justify-content: center !important;
@@ -647,13 +631,13 @@ div.stButton > button:hover {
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button p,
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button span {
   margin: 0 !important;
-  font-size: 1.98rem !important;
+  font-size: 1.95rem !important;
   line-height: 1 !important;
 }
 
 .st-key-bottom_dock [class*="st-key-dock_btn_"] button:hover {
-  border-color: #7fb4ff !important;
-  background: linear-gradient(160deg, #193f73, #20518e) !important;
+  border-color: #f4b082 !important;
+  background: linear-gradient(160deg, #415675, #4a6288) !important;
   transform: translateY(-1px);
 }
 
