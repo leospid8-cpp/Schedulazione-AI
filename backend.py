@@ -463,6 +463,15 @@ class SchedulerManager:
             (limit,),
         )
 
+    def get_scheduler_lines(self):
+        return self.db.execute(
+            """
+            SELECT line_id
+            FROM public.sched_lines
+            ORDER BY line_id
+            """
+        )
+
     def get_tasks_for_run(self, run_id: int):
         return self.db.execute(
             """
