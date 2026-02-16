@@ -578,6 +578,84 @@ class LineaManager:
             """, (giorno, linea_id, target_ok))
             giorno += timedelta(days=1)
 
+    def get_eventi_recenti(self, limit: int = 200, linea_id: int | None = None):
+        self._refresh_source_mode()
+        lim = max(1, min(int(limit), 2000))
+
+        if self._use_sched:
+            params = [lim]
+            where_sql = ""
+            if linea_id is not None:
+                lid = self._resolve_sched_line_id(int(linea_id))
+                if not lid:
+                    return []
+                where_sql = "WHERE e.line_id = %s"
+                params = [lid, lim]
+
+            rows = self.db.execute(
+                f"""
+                SELECT
+                  (e.ts AT TIME ZONE 'Europe/Rome') AS ts_local,
+                  e.line_id,
+                  COALESCE(r.nome, e.line_id) AS nome_linea,
+                  COALESCE(e.order_id, '') AS order_id,
+                  e.tipo,
+                  COALESCE(e.qta, 0) AS qta
+                FROM public.sched_production_events e
+                LEFT JOIN public.sched_line_runtime r ON r.line_id = e.line_id
+                {where_sql}
+                ORDER BY e.ts DESC
+                LIMIT %s
+                """,
+                tuple(params),
+            )
+            return [
+                {
+                    "timestamp": x.get("ts_local"),
+                    "linea_id": x.get("line_id"),
+                    "linea_nome": x.get("nome_linea"),
+                    "ordine": x.get("order_id") or "",
+                    "evento": x.get("tipo"),
+                    "qta": int(x.get("qta") or 0),
+                }
+                for x in rows
+            ]
+
+        params = [lim]
+        where_sql = ""
+        if linea_id is not None:
+            where_sql = "WHERE e.linea_id = %s"
+            params = [int(linea_id), lim]
+
+        rows = self.db.execute(
+            f"""
+            SELECT
+              (e.ts AT TIME ZONE 'Europe/Rome') AS ts_local,
+              e.linea_id,
+              COALESCE(l.nome, ('Linea ' || e.linea_id::text)) AS nome_linea,
+              COALESCE(e.ordine_codice, '') AS order_id,
+              e.tipo,
+              COALESCE(e.qta, 0) AS qta
+            FROM produzione_eventi e
+            LEFT JOIN linee_produttive l ON l.id = e.linea_id
+            {where_sql}
+            ORDER BY e.ts DESC
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        return [
+            {
+                "timestamp": x.get("ts_local"),
+                "linea_id": f"L{x.get('linea_id')}",
+                "linea_nome": x.get("nome_linea"),
+                "ordine": x.get("order_id") or "",
+                "evento": x.get("tipo"),
+                "qta": int(x.get("qta") or 0),
+            }
+            for x in rows
+        ]
+
 
 class OrdineManager:
     def __init__(self, db_manager: DatabaseManager):
