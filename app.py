@@ -935,17 +935,11 @@ def render_enterprise_home():
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown('<div class="card-kpi">', unsafe_allow_html=True)
         st.metric("Pezzi fatti oggi", tot_prodotti)
-        st.markdown("</div>", unsafe_allow_html=True)
     with c2:
-        st.markdown('<div class="card-kpi">', unsafe_allow_html=True)
         st.metric("Obiettivo totale", tot_target)
-        st.markdown("</div>", unsafe_allow_html=True)
     with c3:
-        st.markdown('<div class="card-kpi">', unsafe_allow_html=True)
         st.metric("Pezzi mancanti", mancanti)
-        st.markdown("</div>", unsafe_allow_html=True)
 
     if tot_target > 0:
         p = min(tot_prodotti / tot_target, 1.0)
