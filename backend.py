@@ -20,7 +20,7 @@ class DatabaseManager:
             st.error("Manca SUPABASE_URL nei secrets di Streamlit.")
             st.stop()
 
-    def execute(self, sql: str, params=()):
+    def execute(self, sql: str, params=(), strict: bool = False):
         conn = None
         try:
             conn = psycopg2.connect(self.db_url)
@@ -33,6 +33,8 @@ class DatabaseManager:
             conn.commit()
             return True
         except Exception as e:
+            if strict:
+                raise RuntimeError(f"Errore DB: {e}") from e
             st.error(f"Errore DB: {e}")
             return [] if sql.strip().upper().startswith("SELECT") else False
         finally:
@@ -637,8 +639,74 @@ class OrdineManager:
             );
         """)
 
+    def _scheduler_cycle_table(self) -> str:
+        if self._table_exists("sched_cycle_times"):
+            return "sched_cycle_times"
+        return "sched_cycle_lines"
+
+    def _ensure_sched_defaults_for_order(self, order_id: str, code: str):
+        lines = self.db.execute(
+            "SELECT line_id FROM public.sched_lines ORDER BY line_id",
+            strict=True,
+        )
+        if not lines:
+            return
+
+        for r in lines:
+            self.db.execute(
+                """
+                INSERT INTO public.sched_eligible_lines(order_id, line_id)
+                VALUES (%s, %s)
+                ON CONFLICT (order_id, line_id) DO NOTHING
+                """,
+                (order_id, str(r["line_id"])),
+                strict=True,
+            )
+
+        cycle_table = self._scheduler_cycle_table()
+        existing = self.db.execute(
+            f"""
+            SELECT line_id, cycle_min_per_piece
+            FROM public.{cycle_table}
+            WHERE code = %s
+            """,
+            (code,),
+            strict=True,
+        )
+        cycle_by_line = {str(x["line_id"]): float(x["cycle_min_per_piece"]) for x in existing}
+
+        if len(cycle_by_line) < len(lines):
+            avg_rows = self.db.execute(
+                f"""
+                SELECT line_id, AVG(cycle_min_per_piece) AS avg_cycle
+                FROM public.{cycle_table}
+                GROUP BY line_id
+                """,
+                strict=True,
+            )
+            avg_by_line = {str(x["line_id"]): float(x["avg_cycle"]) for x in avg_rows if x.get("avg_cycle") is not None}
+
+            for r in lines:
+                line_id = str(r["line_id"])
+                if line_id in cycle_by_line:
+                    continue
+                cycle_value = float(avg_by_line.get(line_id, 1.0))
+                self.db.execute(
+                    f"""
+                    INSERT INTO public.{cycle_table}(code, line_id, cycle_min_per_piece)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (code, line_id) DO NOTHING
+                    """,
+                    (code, line_id, cycle_value),
+                    strict=True,
+                )
+
     def add_ordine(self, codice: str, modello: str, quantita: int, deadline: str):
         self._refresh_source_mode()
+        qty = int(quantita)
+        if qty <= 0:
+            raise RuntimeError("Quantita ordine non valida: deve essere > 0.")
+
         if self._use_sched:
             due_date = self._parse_due_date(deadline)
             self.db.execute(
@@ -652,12 +720,23 @@ class OrdineManager:
                   due_date = EXCLUDED.due_date,
                   due_serial = EXCLUDED.due_serial
                 """,
-                (codice, modello, int(quantita), due_date, int(due_date.toordinal())),
+                (codice, modello, qty, due_date, int(due_date.toordinal())),
+                strict=True,
             )
+            # Garantisce che l'ordine appena creato sia immediatamente schedulabile.
+            self._ensure_sched_defaults_for_order(str(codice), str(modello))
             return
         self.db.execute(
-            "INSERT INTO ordini_produzione (codice, modello, quantita, deadline) VALUES (%s, %s, %s, %s)",
-            (codice, modello, quantita, deadline),
+            """
+            INSERT INTO ordini_produzione (codice, modello, quantita, deadline)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (codice) DO UPDATE SET
+              modello = EXCLUDED.modello,
+              quantita = EXCLUDED.quantita,
+              deadline = EXCLUDED.deadline
+            """,
+            (codice, modello, qty, deadline),
+            strict=True,
         )
 
     def get_ordini(self):
@@ -733,12 +812,15 @@ class SchedulerManager:
     - crea/aggiorna schema sched_*
     - esegue strategie e salva run/tasks su DB
     """
+    _schema_bootstrapped = False
 
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
         root = Path(__file__).resolve().parent
         self.schema_path = root / "team_pack" / "scheduler_schema.sql"
-        self.ensure_schema()
+        if not SchedulerManager._schema_bootstrapped:
+            self.ensure_schema()
+            SchedulerManager._schema_bootstrapped = True
 
     def _connect(self):
         return psycopg2.connect(self.db.db_url)
@@ -767,8 +849,25 @@ class SchedulerManager:
         )
         return {r["column_name"] for r in rows} if rows else set()
 
-    def ensure_schema(self):
+    def _schema_ready(self) -> bool:
+        required_tables = [
+            "sched_lines",
+            "sched_orders",
+            "sched_eligible_lines",
+            "sched_runs",
+            "sched_tasks",
+            "sched_shift_config",
+        ]
+        return all(self._table_exists(t) for t in required_tables)
+
+    def ensure_schema(self, force: bool = False):
         from team_pack.supabase_pipeline import apply_schema, ensure_strategy_constraint
+
+        if not force and self._schema_ready():
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    ensure_strategy_constraint(cur)
+            return
 
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -776,22 +875,35 @@ class SchedulerManager:
                 ensure_strategy_constraint(cur)
 
     def _build_dataset_from_db(self):
-        lines_raw = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id")
+        lines_raw = self.db.execute("SELECT line_id FROM public.sched_lines ORDER BY line_id", strict=True)
         orders_raw = self.db.execute(
             """
             SELECT order_id, code, qty, due_date, due_serial
             FROM public.sched_orders
             ORDER BY order_id
-            """
+            """,
+            strict=True,
         )
-        eligible_raw = self.db.execute("SELECT order_id, line_id FROM public.sched_eligible_lines")
+        eligible_raw = self.db.execute("SELECT order_id, line_id FROM public.sched_eligible_lines", strict=True)
         cycle_table = "sched_cycle_times"
         if not self._table_exists(cycle_table) and self._table_exists("sched_cycle_lines"):
             cycle_table = "sched_cycle_lines"
-        cycle_raw = self.db.execute(f"SELECT code, line_id, cycle_min_per_piece FROM public.{cycle_table}")
-        config_raw = self.db.execute("SELECT line_id, current_code, loaded_qty FROM public.sched_current_config")
-        setup_from_raw = self.db.execute("SELECT line_id, to_code, setup_min FROM public.sched_setup_from_current")
-        setup_between_raw = self.db.execute("SELECT from_code, to_code, setup_min FROM public.sched_setup_between_codes")
+        cycle_raw = self.db.execute(
+            f"SELECT code, line_id, cycle_min_per_piece FROM public.{cycle_table}",
+            strict=True,
+        )
+        config_raw = self.db.execute(
+            "SELECT line_id, current_code, loaded_qty FROM public.sched_current_config",
+            strict=True,
+        )
+        setup_from_raw = self.db.execute(
+            "SELECT line_id, to_code, setup_min FROM public.sched_setup_from_current",
+            strict=True,
+        )
+        setup_between_raw = self.db.execute(
+            "SELECT from_code, to_code, setup_min FROM public.sched_setup_between_codes",
+            strict=True,
+        )
         calendar_cfg = self._get_calendar_config()
 
         lines = [{"line_id": r["line_id"]} for r in lines_raw]
@@ -892,8 +1004,6 @@ class SchedulerManager:
             cfg["day_minutes"] = max(cfg["shift_minutes"], 1440.0)
         if cfg["shift_start_min"] < 0 or cfg["shift_start_min"] >= cfg["day_minutes"]:
             cfg["shift_start_min"] = 360.0
-        if cfg["shift_start_min"] == 0:
-            cfg["shift_start_min"] = 360.0
 
         today_serial = date.today().toordinal() - date(1899, 12, 30).toordinal()
         now_dt = datetime.now()
@@ -970,6 +1080,16 @@ class SchedulerManager:
         d_ord = dt_value.date().toordinal() - base
         minute_of_day = dt_value.hour * 60.0 + dt_value.minute + (dt_value.second / 60.0)
         return (d_ord * float(cfg["day_minutes"])) + minute_of_day
+
+    def _calendar_min_to_datetime(self, calendar_min: float, cfg: dict) -> datetime:
+        day_minutes = float(cfg["day_minutes"])
+        cal = max(0.0, float(calendar_min))
+        day_idx = int(cal // day_minutes)
+        min_day = cal - (day_idx * day_minutes)
+        hh = int(min_day // 60) % 24
+        mm = int(min_day % 60)
+        base_date = date(1899, 12, 30) + timedelta(days=day_idx)
+        return datetime.combine(base_date, datetime.min.time()).replace(hour=hh, minute=mm)
 
     def run_scheduler(self, strategy: str = "all"):
         from team_pack.supabase_pipeline import (
@@ -1081,7 +1201,7 @@ class SchedulerManager:
         if not edited_tasks:
             raise RuntimeError("Nessun task da salvare.")
 
-        orders = self.db.execute("SELECT order_id, due_serial, due_date FROM public.sched_orders")
+        orders = self.db.execute("SELECT order_id, due_serial, due_date FROM public.sched_orders", strict=True)
         calendar_cfg = self._get_calendar_config()
         shift_minutes = float(calendar_cfg["shift_minutes"])
         anchor_work_abs = float(calendar_cfg.get("anchor_work_abs", 0.0))
@@ -1095,6 +1215,7 @@ class SchedulerManager:
         base_serial = min(serials) if serials else 0.0
 
         normalized = []
+        invalid_rows = []
         for row in edited_tasks:
             order_id = str(row.get("order_id", "")).strip()
             code = str(row.get("code", "")).strip()
@@ -1109,11 +1230,19 @@ class SchedulerManager:
             if start_dt is not None:
                 start_min = float(self._datetime_to_calendar_min(start_dt, calendar_cfg))
             else:
-                start_min = float(row.get("start_min", 0))
+                raw_start_min = row.get("start_min")
+                if raw_start_min in (None, ""):
+                    invalid_rows.append(order_id or "<unknown>")
+                    continue
+                start_min = float(raw_start_min)
             if end_dt is not None:
                 end_min = float(self._datetime_to_calendar_min(end_dt, calendar_cfg))
             else:
-                end_min = float(row.get("end_min", 0))
+                raw_end_min = row.get("end_min")
+                if raw_end_min in (None, ""):
+                    invalid_rows.append(order_id or "<unknown>")
+                    continue
+                end_min = float(raw_end_min)
             if end_min < start_min:
                 end_min = start_min
 
@@ -1136,29 +1265,21 @@ class SchedulerManager:
             start_parts = self._work_to_calendar_parts(start_work_min, calendar_cfg)
             end_parts = self._work_to_calendar_parts(end_work_min, calendar_cfg)
 
-            start_at = start_dt.isoformat(timespec="minutes") if start_dt else None
-            end_at = end_dt.isoformat(timespec="minutes") if end_dt else None
-            if start_at is None:
-                base_date = date(1899, 12, 30) + timedelta(days=int(start_min // float(calendar_cfg["day_minutes"])))
-                mday = start_min - (int(start_min // float(calendar_cfg["day_minutes"])) * float(calendar_cfg["day_minutes"]))
-                hh = int(mday // 60)
-                mm = int(mday % 60)
-                start_at = datetime.combine(base_date, datetime.min.time()).replace(hour=hh % 24, minute=mm).isoformat(timespec="minutes")
-            if end_at is None:
-                base_date = date(1899, 12, 30) + timedelta(days=int(end_min // float(calendar_cfg["day_minutes"])))
-                mday = end_min - (int(end_min // float(calendar_cfg["day_minutes"])) * float(calendar_cfg["day_minutes"]))
-                hh = int(mday // 60)
-                mm = int(mday % 60)
-                end_at = datetime.combine(base_date, datetime.min.time()).replace(hour=hh % 24, minute=mm).isoformat(timespec="minutes")
+            start_at = (
+                start_dt.isoformat(timespec="minutes")
+                if start_dt
+                else self._calendar_min_to_datetime(start_min, calendar_cfg).isoformat(timespec="minutes")
+            )
+            end_at = (
+                end_dt.isoformat(timespec="minutes")
+                if end_dt
+                else self._calendar_min_to_datetime(end_min, calendar_cfg).isoformat(timespec="minutes")
+            )
             due_at = None
             if due_work_min is not None:
                 due_parts = self._work_to_calendar_parts(due_work_min, calendar_cfg)
                 due_cal = float(due_parts["calendar_min"])
-                due_date_base = date(1899, 12, 30) + timedelta(days=int(due_cal // float(calendar_cfg["day_minutes"])))
-                mday = due_cal - (int(due_cal // float(calendar_cfg["day_minutes"])) * float(calendar_cfg["day_minutes"]))
-                hh = int(mday // 60)
-                mm = int(mday % 60)
-                due_at = datetime.combine(due_date_base, datetime.min.time()).replace(hour=hh % 24, minute=mm).isoformat(timespec="minutes")
+                due_at = self._calendar_min_to_datetime(due_cal, calendar_cfg).isoformat(timespec="minutes")
 
             normalized.append(
                 {
@@ -1182,6 +1303,13 @@ class SchedulerManager:
                     "end_at": end_at,
                     "due_at": due_at,
                 }
+            )
+
+        if invalid_rows:
+            bad = ", ".join(invalid_rows[:8])
+            raise RuntimeError(
+                "Task manuali non validi: start_at/end_at (o start_min/end_min) mancanti per: "
+                f"{bad}"
             )
 
         if not normalized:
