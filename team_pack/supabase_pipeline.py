@@ -419,7 +419,11 @@ def persist_run(cursor, result: Dict[str, Any]) -> int:
             "due_date": t.get("due_date"),
             "start_work_min": _to_float(t.get("start_work_min"), 0.0),
             "end_work_min": _to_float(t.get("end_work_min"), 0.0),
-            "due_work_min": _to_float(t.get("due_work_min"), 0.0),
+            "due_work_min": (
+                None
+                if t.get("due_work_min") in (None, "")
+                else _to_float(t.get("due_work_min"), 0.0)
+            ),
             "start_day": _to_int(t.get("start_day"), 0),
             "end_day": _to_int(t.get("end_day"), 0),
             "start_shift_min": _to_float(t.get("start_shift_min"), 0.0),

@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import json
+import re
 import time
 from datetime import date, timedelta
 
@@ -108,6 +109,44 @@ def goto_linea(linea_id: int):
     st.session_state.selected_linea_id = int(linea_id)
     st.session_state.app_section = "linea_detail"
     st.rerun()
+
+
+def _extract_json_payload(text: str) -> str | None:
+    if not text:
+        return None
+
+    candidates = []
+    candidates.extend(re.findall(r"```json\s*([\s\S]*?)```", text, flags=re.IGNORECASE))
+    candidates.extend(re.findall(r"```\s*([\s\S]*?)```", text, flags=re.IGNORECASE))
+    candidates.append(text.strip())
+
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        s = (candidate or "").strip()
+        if not s:
+            continue
+        try:
+            obj = json.loads(s)
+            return json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            pass
+
+        for i, ch in enumerate(s):
+            if ch not in "[{":
+                continue
+            try:
+                obj, _ = decoder.raw_decode(s[i:])
+                return json.dumps(obj, ensure_ascii=False)
+            except Exception:
+                continue
+    return None
+
+
+def _format_hhmm(total_minutes: float) -> str:
+    m = int(float(total_minutes) % 1440)
+    h = m // 60
+    mm = m % 60
+    return f"{h:02d}:{mm:02d}"
 
 
 def esegui_azioni_ai(json_input: str) -> str:
@@ -872,15 +911,7 @@ ISTRUZIONI:
                     raise
             answ = response.text.strip()
 
-            json_found = None
-            if "```json" in answ:
-                s = answ.find("```json") + 7
-                e = answ.find("```", s)
-                json_found = answ[s:e].strip()
-            elif answ.startswith("[") and answ.endswith("]"):
-                json_found = answ
-            elif answ.startswith("{") and answ.endswith("}"):
-                json_found = answ
+            json_found = _extract_json_payload(answ)
 
             if json_found:
                 report = esegui_azioni_ai(json_found)
@@ -1194,8 +1225,9 @@ def render_enterprise_planner():
             f"Linee: **{stats['sched_lines']}** | Ordini: **{stats['sched_orders']}** | "
             f"Run: **{stats['sched_runs']}** | Task: **{stats['sched_tasks']}**"
         )
+        start_label = _format_hhmm(float(cal.get("shift_start_min", 360)))
         st.caption(
-            f"Calendario: turno={float(cal['shift_minutes']) / 60:.0f}h | giorno={float(cal['day_minutes']) / 60:.0f}h | inizio turno=06:00"
+            f"Calendario: turno={float(cal['shift_minutes']) / 60:.0f}h | giorno={float(cal['day_minutes']) / 60:.0f}h | inizio turno={start_label}"
         )
 
     runs = mgr.get_recent_runs(limit=50)
@@ -1262,7 +1294,19 @@ def render_enterprise_planner():
 
     if st.button("Salva come piano manuale", key="planner_save_manual_btn"):
         try:
-            run_id = mgr.save_manual_run(edited.to_dict("records"))
+            edited_to_save = edited.copy()
+            edited_to_save["start_at"] = pd.to_datetime(edited_to_save["start_at"], errors="coerce")
+            edited_to_save["end_at"] = pd.to_datetime(edited_to_save["end_at"], errors="coerce")
+            missing_dt = edited_to_save["start_at"].isna() | edited_to_save["end_at"].isna()
+            if missing_dt.any():
+                bad_orders = edited_to_save.loc[missing_dt, "order_id"].astype(str).head(5).tolist()
+                st.error(
+                    "Compila start_at e end_at per tutti i task prima di salvare. "
+                    f"Ordini con date mancanti: {', '.join(bad_orders)}"
+                )
+                return
+
+            run_id = mgr.save_manual_run(edited_to_save.to_dict("records"))
             st.success(f"Piano manuale salvato con run_id={run_id}")
             st.rerun()
         except Exception as e:
@@ -1573,15 +1617,7 @@ ISTRUZIONI:
                                 raise
                         answ = response.text.strip()
 
-                        json_found = None
-                        if "```json" in answ:
-                            s = answ.find("```json") + 7
-                            e = answ.find("```", s)
-                            json_found = answ[s:e].strip()
-                        elif answ.startswith("[") and answ.endswith("]"):
-                            json_found = answ
-                        elif answ.startswith("{") and answ.endswith("}"):
-                            json_found = answ
+                        json_found = _extract_json_payload(answ)
 
                         if json_found:
                             report = esegui_azioni_ai(json_found)
