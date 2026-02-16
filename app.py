@@ -1182,6 +1182,35 @@ def render_enterprise_graphs():
     st.altair_chart(bar_chart, width="stretch")
     st.dataframe(bar_df, width="stretch", hide_index=True)
 
+    st.divider()
+    st.subheader("Imposta Target In Analytics")
+    st.caption("Applica un target OK giornaliero al range selezionato per le linee filtrate.")
+
+    tgt_c1, tgt_c2 = st.columns([1.0, 2.0])
+    with tgt_c1:
+        target_value = st.number_input(
+            "Target OK/giorno",
+            min_value=0,
+            max_value=500000,
+            value=0,
+            step=10,
+            key="analytics_target_value",
+        )
+    with tgt_c2:
+        selected_labels = [f"L{lid}" for lid in selected]
+        st.write(f"Linee target: **{', '.join(selected_labels)}**")
+        st.write(f"Range target: **{start_day} -> {end_day}**")
+        if st.button("Salva target per linee selezionate", key="analytics_set_target_btn", width="stretch"):
+            for lid in selected:
+                st.session_state.linea_mgr.set_obiettivo_giornaliero_range(
+                    int(lid),
+                    start_day,
+                    end_day,
+                    int(target_value),
+                )
+            st.success("Target salvato in analytics.")
+            st.rerun()
+
 
 def render_enterprise_planner():
     st.title("Planner Ordini & Gantt Schedulazione")
