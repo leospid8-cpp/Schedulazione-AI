@@ -1182,61 +1182,6 @@ def render_enterprise_graphs():
     st.altair_chart(bar_chart, width="stretch")
     st.dataframe(bar_df, width="stretch", hide_index=True)
 
-    st.divider()
-    st.subheader("Storico Eventi Produzione")
-    hist_c1, hist_c2 = st.columns([2.2, 1.0])
-    with hist_c1:
-        hist_line_options = [("Tutte le linee", None)] + [
-            (f"L{int(l['id'])} - {l['nome']}", int(l["id"])) for l in lines
-        ]
-        hist_line_labels = [x[0] for x in hist_line_options]
-        hist_line_label = st.selectbox(
-            "Filtro linea",
-            options=hist_line_labels,
-            index=0,
-            key="history_line_filter",
-        )
-        hist_line_map = {label: lid for label, lid in hist_line_options}
-        hist_line_id = hist_line_map.get(hist_line_label)
-    with hist_c2:
-        hist_limit = st.number_input(
-            "Righe storico",
-            min_value=20,
-            max_value=2000,
-            value=200,
-            step=20,
-            key="history_rows_limit",
-        )
-
-    events = st.session_state.linea_mgr.get_eventi_recenti(limit=int(hist_limit), linea_id=hist_line_id)
-    if events:
-        df_events = pd.DataFrame(events)
-        df_events["timestamp"] = pd.to_datetime(df_events["timestamp"], errors="coerce")
-        st.dataframe(df_events, width="stretch", hide_index=True)
-    else:
-        st.caption("Nessun evento storico disponibile per il filtro selezionato.")
-
-    sched_mgr = st.session_state.get("scheduler_mgr")
-    if sched_mgr is not None:
-        st.divider()
-        st.subheader("Storico Run Schedulazione")
-        run_limit = st.number_input(
-            "Numero run recenti",
-            min_value=5,
-            max_value=200,
-            value=30,
-            step=5,
-            key="history_runs_limit",
-        )
-        runs = sched_mgr.get_recent_runs(limit=int(run_limit))
-        if runs:
-            df_runs = pd.DataFrame(runs)
-            if "created_at" in df_runs.columns:
-                df_runs["created_at"] = pd.to_datetime(df_runs["created_at"], errors="coerce")
-            st.dataframe(df_runs, width="stretch", hide_index=True)
-        else:
-            st.caption("Nessun run schedulazione disponibile.")
-
 
 def render_enterprise_planner():
     st.title("Planner Ordini & Gantt Schedulazione")
