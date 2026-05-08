@@ -7,3 +7,5 @@ pyserial
 reportlab
 openpyxl
 pywebview>=5.0
+streamlit-mic-recorder>=0.0.8
+edge-tts>=6.1.0
