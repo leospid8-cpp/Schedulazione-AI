@@ -4,23 +4,12 @@ Voce naturale tramite edge-tts (Microsoft Azure Neural Voices, gratuito).
 Funziona in app desktop (pywebview) e web (browser).
 """
 
-import asyncio
-
-import edge_tts
 import google.generativeai as genai
 import streamlit as st
 from streamlit_mic_recorder import speech_to_text
 
 from backend import DatabaseManager, LineaManager, OrdineManager
-
-
-VOCI_DISPONIBILI = {
-    "Isabella (femminile, naturale)": "it-IT-IsabellaNeural",
-    "Diego (maschile, naturale)": "it-IT-DiegoNeural",
-    "Elsa (femminile, alternativa)": "it-IT-ElsaNeural",
-    "Cataldo (maschile, espressivo)": "it-IT-CataldoNeural",
-    "Giuseppe (maschile, alternativo)": "it-IT-GiuseppeNeural",
-}
+from tts_utils import VOCI_DISPONIBILI, genera_audio
 
 st.set_page_config(page_title="Chat Vocale", page_icon="🎤", layout="wide")
 
@@ -95,29 +84,6 @@ def chiedi_ai(domanda: str, contesto: str) -> str:
             except Exception as e2:
                 return f"Errore AI (quota esaurita su entrambe le chiavi): {e2}"
         return f"Errore AI: {e}"
-
-
-async def _genera_audio_async(testo: str, voce: str) -> bytes:
-    """Genera audio MP3 da testo usando edge-tts (Microsoft Azure Neural Voices)."""
-    communicate = edge_tts.Communicate(testo, voce)
-    audio_data = bytearray()
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio_data.extend(chunk["data"])
-    return bytes(audio_data)
-
-
-def genera_audio(testo: str, voce: str) -> bytes:
-    """Wrapper sincrono per la generazione TTS."""
-    try:
-        return asyncio.run(_genera_audio_async(testo, voce))
-    except RuntimeError:
-        # Caso in cui un event loop asyncio sia già attivo (es. Streamlit Cloud)
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(_genera_audio_async(testo, voce))
-        finally:
-            loop.close()
 
 
 # Inizializzazione session state per questa pagina
