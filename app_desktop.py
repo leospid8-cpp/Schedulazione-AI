@@ -94,7 +94,8 @@ def main():
             streamlit_proc.kill()
 
     window.events.closed += on_closed
-    webview.start()
+    # private_mode=False permette accesso al microfono (necessario per chat vocale)
+    webview.start(private_mode=False)
 
 
 if __name__ == "__main__":
