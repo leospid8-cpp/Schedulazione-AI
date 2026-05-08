@@ -11,6 +11,13 @@ import streamlit.components.v1 as components
 
 from backend import DatabaseManager, LineaManager, OrdineManager
 from export_report import genera_pdf, genera_excel
+from tts_utils import genera_audio
+
+try:
+    from streamlit_mic_recorder import speech_to_text as _stt
+    _mic_available = True
+except ImportError:
+    _mic_available = False
 
 try:
     from backend import SchedulerManager
@@ -869,11 +876,44 @@ def render_home_chat_panel():
             {"role": "assistant", "content": "Ciao. Posso aiutarti con schedulazione e stato linee."}
         ]
 
-    for msg in st.session_state.messages:
+    for i, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
+            if msg["role"] == "assistant":
+                if st.button("🔊", key=f"speak_{i}", help="Ascolta la risposta"):
+                    try:
+                        audio = genera_audio(msg["content"], "it-IT-IsabellaNeural")
+                        st.audio(audio, format="audio/mp3", autoplay=True)
+                    except Exception as e:
+                        st.warning(f"Errore audio: {e}")
 
-    prompt = st.chat_input("Scrivi un comando o una domanda...", key="enterprise_chat_input")
+    form_col, mic_col = st.columns([6, 1])
+    with form_col:
+        with st.form("ai_home_chat_form", clear_on_submit=True):
+            user_input = st.text_input(
+                "input",
+                placeholder="Scrivi un comando o una domanda...",
+                label_visibility="collapsed",
+                key="ai_home_text_input",
+            )
+            send = st.form_submit_button("Invia", use_container_width=True)
+    with mic_col:
+        if _mic_available:
+            voice_text = _stt(
+                language="it-IT",
+                start_prompt="🎤",
+                stop_prompt="⏹",
+                just_once=True,
+                use_container_width=True,
+                key="stt_home_chat",
+            )
+        else:
+            voice_text = None
+
+    prompt = user_input.strip() if send and user_input.strip() else None
+    if not prompt and voice_text:
+        prompt = voice_text
+
     if not prompt:
         return
 
