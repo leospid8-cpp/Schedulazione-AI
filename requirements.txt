@@ -6,3 +6,4 @@ altair
 pyserial
 reportlab
 openpyxl
+pywebview>=5.0
