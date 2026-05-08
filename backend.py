@@ -546,6 +546,32 @@ class LineaManager:
         """
         return self.db.execute(sql, (linea_id, start_day, end_day))
 
+    def get_eventi_nel_range(self, linea_id: int, start_day: date, end_day: date) -> list:
+        """
+        Ritorna gli eventi (OK, KO, START, STOP) per una linea nel range di date.
+        """
+        self._refresh_source_mode()
+        if self._use_sched:
+            lid = self._resolve_sched_line_id(linea_id)
+            if not lid:
+                return []
+            sql = """
+                SELECT ts, tipo, order_id, qta
+                FROM public.sched_production_events
+                WHERE line_id = %s
+                  AND (ts AT TIME ZONE 'Europe/Rome')::date BETWEEN %s AND %s
+                ORDER BY ts
+            """
+            return self.db.execute(sql, (lid, start_day, end_day))
+        sql = """
+            SELECT ts, tipo, ordine_codice, qta
+            FROM produzione_eventi
+            WHERE linea_id = %s
+              AND (ts AT TIME ZONE 'Europe/Rome')::date BETWEEN %s AND %s
+            ORDER BY ts;
+        """
+        return self.db.execute(sql, (linea_id, start_day, end_day))
+
     def set_obiettivo_giornaliero_range(self, linea_id: int, start_day: date, end_day: date, target_ok: int):
         """
         Imposta lo stesso target_ok per ogni giorno nel range (UPSERT).

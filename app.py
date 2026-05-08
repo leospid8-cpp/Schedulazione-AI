@@ -10,6 +10,7 @@ import altair as alt
 import streamlit.components.v1 as components
 
 from backend import DatabaseManager, LineaManager, OrdineManager
+from export_report import genera_pdf, genera_excel
 
 try:
     from backend import SchedulerManager
@@ -1183,6 +1184,43 @@ def render_enterprise_graphs():
     st.dataframe(bar_df, width="stretch", hide_index=True)
 
     st.divider()
+    st.subheader("📥 Esporta Report Linee Selezionate")
+    _date_str_g = f"{start_day}_{end_day}"
+    for _lid_g, _df_g in zip(selected, frames):
+        _nome_g = line_map[_lid_g]
+        _nome_safe_g = _nome_g.replace(" ", "_").replace("/", "-")
+        _df_g_clean = _df_g.drop(columns=['linea'], errors='ignore')
+        _eventi_g = st.session_state.linea_mgr.get_eventi_nel_range(int(_lid_g), start_day, end_day)
+        st.write(f"**L{_lid_g} — {_nome_g}**")
+        _gc1, _gc2 = st.columns(2)
+        with _gc1:
+            try:
+                _gpdf = genera_pdf(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
+                st.download_button(
+                    "📄 Scarica PDF",
+                    data=_gpdf,
+                    file_name=f"report_{_nome_safe_g}_{_date_str_g}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"gx_pdf_{_lid_g}",
+                )
+            except Exception as _e:
+                st.error(f"Errore PDF L{_lid_g}: {_e}")
+        with _gc2:
+            try:
+                _gxls = genera_excel(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
+                st.download_button(
+                    "📊 Scarica Excel",
+                    data=_gxls,
+                    file_name=f"report_{_nome_safe_g}_{_date_str_g}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"gx_xls_{_lid_g}",
+                )
+            except Exception as _e:
+                st.error(f"Errore Excel L{_lid_g}: {_e}")
+
+    st.divider()
     st.subheader("Imposta Target In Analytics")
     st.caption("Applica un target OK giornaliero al range selezionato per le linee filtrate.")
 
@@ -1760,6 +1798,39 @@ def render_linea_detail(linea_id: int):
     # Tabella dettaglio
     st.subheader("📅 Dettaglio giornaliero")
     st.dataframe(df, width="stretch")
+
+    st.divider()
+    st.subheader("📥 Esporta Report")
+    _linea_safe = linea['nome'].replace(" ", "_").replace("/", "-")
+    _date_range = f"{start_day}_{end_day}"
+    _eventi_exp = st.session_state.linea_mgr.get_eventi_nel_range(linea_id, start_day, end_day)
+    _exp_c1, _exp_c2 = st.columns(2)
+    with _exp_c1:
+        try:
+            _pdf_bytes = genera_pdf(linea['nome'], start_day, end_day, df, _eventi_exp)
+            st.download_button(
+                "📄 Scarica PDF",
+                data=_pdf_bytes,
+                file_name=f"report_{_linea_safe}_{_date_range}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="det_pdf",
+            )
+        except Exception as _e:
+            st.error(f"Errore PDF: {_e}")
+    with _exp_c2:
+        try:
+            _xls_bytes = genera_excel(linea['nome'], start_day, end_day, df, _eventi_exp)
+            st.download_button(
+                "📊 Scarica Excel",
+                data=_xls_bytes,
+                file_name=f"report_{_linea_safe}_{_date_range}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="det_xls",
+            )
+        except Exception as _e:
+            st.error(f"Errore Excel: {_e}")
 
 
 #
