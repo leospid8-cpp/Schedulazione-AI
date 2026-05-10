@@ -12,6 +12,7 @@ import streamlit.components.v1 as components
 from backend import DatabaseManager, LineaManager, OrdineManager
 from export_report import genera_pdf, genera_excel
 from tts_utils import genera_audio
+import auth
 
 try:
     from streamlit_mic_recorder import speech_to_text as _stt
@@ -562,6 +563,59 @@ def _backfill_task_datetimes_if_missing(df_tasks: pd.DataFrame, run_created_at, 
     return out
 
 
+def _render_login_page():
+    """Pagina di login a 2 step: credenziali, poi selezione linea per operatore."""
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.markdown("## 📊 MES Dashboard 6.1")
+        st.markdown("---")
+
+        if "_login_pending_user" in st.session_state:
+            # Step 2: selezione linea (solo per operatore)
+            pending = st.session_state._login_pending_user
+            st.info(f"Benvenuto {pending['name']}! Seleziona la linea che gestisci oggi.")
+            linee = st.session_state.linea_mgr.get_status()
+            linea_options = {f"L{l['id']} — {l['nome']}": l["id"] for l in linee}
+            scelta = st.selectbox("La tua linea", list(linea_options.keys()))
+            if st.button("Conferma linea", use_container_width=True):
+                st.session_state.user = {**pending, "assigned_linea_id": linea_options[scelta]}
+                del st.session_state["_login_pending_user"]
+                st.rerun()
+        else:
+            # Step 1: credenziali
+            with st.form("login_form"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Accedi", use_container_width=True)
+
+            if submitted:
+                user = auth.authenticate(username, password)
+                if user is None:
+                    st.error("Credenziali non valide.")
+                elif user["role"] == "operatore":
+                    st.session_state._login_pending_user = user
+                    st.rerun()
+                else:
+                    st.session_state.user = {**user, "assigned_linea_id": None}
+                    st.rerun()
+
+
+def _render_user_bar():
+    """Barra superiore con nome utente, ruolo e pulsante logout."""
+    user = st.session_state.user
+    role_badge = {"admin": "🔴 admin", "operatore": "🟡 operatore", "viewer": "🟢 viewer"}
+    _, right = st.columns([3, 1])
+    with right:
+        st.markdown(
+            f"**Benvenuto {user['name']}** — {role_badge.get(user['role'], user['role'])}"
+        )
+        if st.button("Esci", key="logout_btn", use_container_width=True):
+            login_keys = [k for k in st.session_state if k == "user" or k.startswith("_login_")]
+            for k in login_keys:
+                del st.session_state[k]
+            st.rerun()
+
+
 def apply_enterprise_theme():
     st.markdown(
         """
@@ -799,7 +853,20 @@ div.stButton > button:hover {
   transform: translateY(-1px);
 }
 
-/* Tooltip help (Home/SCADA/Grafici/Planner) leggibile su sfondi scuri */
+/* Tooltip help (Home/SCADA/Grafici/Planner): testo bianco su sfondo scuro */
+[role="tooltip"],
+[data-baseweb="tooltip"],
+[data-baseweb="popover"] [role="tooltip"],
+[data-testid="stTooltipContent"],
+div[data-baseweb="tooltip"] > div,
+div[data-baseweb="popover"] > div[role="tooltip"] {
+  background-color: #1f2a3d !important;
+  background: #1f2a3d !important;
+  border: 1px solid #2f3e58 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35) !important;
+}
+
 [role="tooltip"],
 [role="tooltip"] *,
 [data-baseweb="tooltip"],
@@ -955,8 +1022,14 @@ ISTRUZIONI:
             json_found = _extract_json_payload(answ)
 
             if json_found:
-                report = esegui_azioni_ai(json_found)
-                st.session_state.messages.append({"role": "assistant", "content": report})
+                if auth.can_write(st.session_state.user["role"]):
+                    report = esegui_azioni_ai(json_found)
+                    st.session_state.messages.append({"role": "assistant", "content": report})
+                else:
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "Non hai i permessi per eseguire azioni di scrittura. Posso rispondere solo a domande informative sullo stato delle linee.",
+                    })
             else:
                 st.session_state.messages.append({"role": "assistant", "content": answ})
         except Exception as e:
@@ -1011,25 +1084,26 @@ def render_enterprise_home():
                 )
             st.dataframe(pd.DataFrame(order_rows), width="stretch", hide_index=True)
 
-        st.markdown('<div class="section-title" style="margin-top:10px;">Nuovo ordine</div>', unsafe_allow_html=True)
-        with st.form("enterprise_new_order_form", clear_on_submit=True):
-            new_order_id = st.text_input("Order ID", placeholder="ORD_094")
-            new_code = st.text_input("Codice prodotto", placeholder="CD428")
-            new_qty = st.number_input("Quantita", min_value=1, max_value=1_000_000, value=10, step=1)
-            new_due = st.date_input("Scadenza", value=date.today())
-            submitted = st.form_submit_button("Crea ordine", width="stretch")
-            if submitted:
-                if not str(new_order_id).strip() or not str(new_code).strip():
-                    st.error("Compila almeno Order ID e Codice prodotto.")
-                else:
-                    st.session_state.ordine_mgr.add_ordine(
-                        str(new_order_id).strip(),
-                        str(new_code).strip(),
-                        int(new_qty),
-                        new_due.isoformat(),
-                    )
-                    st.success(f"Ordine creato: {new_order_id}")
-                    st.rerun()
+        if auth.can_write(st.session_state.user["role"]):
+            st.markdown('<div class="section-title" style="margin-top:10px;">Nuovo ordine</div>', unsafe_allow_html=True)
+            with st.form("enterprise_new_order_form", clear_on_submit=True):
+                new_order_id = st.text_input("Order ID", placeholder="ORD_094")
+                new_code = st.text_input("Codice prodotto", placeholder="CD428")
+                new_qty = st.number_input("Quantita", min_value=1, max_value=1_000_000, value=10, step=1)
+                new_due = st.date_input("Scadenza", value=date.today())
+                submitted = st.form_submit_button("Crea ordine", width="stretch")
+                if submitted:
+                    if not str(new_order_id).strip() or not str(new_code).strip():
+                        st.error("Compila almeno Order ID e Codice prodotto.")
+                    else:
+                        st.session_state.ordine_mgr.add_ordine(
+                            str(new_order_id).strip(),
+                            str(new_code).strip(),
+                            int(new_qty),
+                            new_due.isoformat(),
+                        )
+                        st.success(f"Ordine creato: {new_order_id}")
+                        st.rerun()
 
 
 def _latest_planned_code_by_line(mgr):
@@ -1081,6 +1155,13 @@ def render_enterprise_scada():
     if not display_ids:
         display_ids = [f"L{int(l['id'])}" for l in live_lines]
 
+    _role = st.session_state.user["role"]
+    if _role == "operatore":
+        _assigned = st.session_state.user.get("assigned_linea_id")
+        if _assigned:
+            _allowed = _line_aliases(int(_assigned))
+            display_ids = [lid for lid in display_ids if str(lid) in _allowed]
+
     top_c1, top_c2 = st.columns([1, 5])
     with top_c1:
         if st.button("Aggiorna", width="stretch", key="scada_refresh_btn"):
@@ -1106,26 +1187,28 @@ def render_enterprise_scada():
                     m1.metric("Buoni", int(live_line["pezzi_fatti"]))
                     m2.metric("Scarti", int(live_line["pezzi_scarti"]))
 
-                    b1, b2 = st.columns(2)
-                    with b1:
-                        if st.button("+10 OK", key=f"scada_ok_{live_line['id']}_{line_id}", width="stretch"):
-                            st.session_state.linea_mgr.update_counts(live_line["id"], buoni=10)
-                            st.rerun()
-                    with b2:
-                        if st.button("+1 KO", key=f"scada_ko_{live_line['id']}_{line_id}", width="stretch"):
-                            st.session_state.linea_mgr.update_counts(live_line["id"], scarti=1)
-                            st.rerun()
+                    if auth.can_write(_role):
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            if st.button("+10 OK", key=f"scada_ok_{live_line['id']}_{line_id}", width="stretch"):
+                                st.session_state.linea_mgr.update_counts(live_line["id"], buoni=10)
+                                st.rerun()
+                        with b2:
+                            if st.button("+1 KO", key=f"scada_ko_{live_line['id']}_{line_id}", width="stretch"):
+                                st.session_state.linea_mgr.update_counts(live_line["id"], scarti=1)
+                                st.rerun()
 
                     b3, b4 = st.columns(2)
                     with b3:
-                        if stato == "Attiva":
-                            if st.button("STOP", key=f"scada_stop_{live_line['id']}_{line_id}", width="stretch"):
-                                st.session_state.linea_mgr.set_stato(live_line["id"], "Ferma", "Manuale")
-                                st.rerun()
-                        else:
-                            if st.button("START", key=f"scada_start_{live_line['id']}_{line_id}", width="stretch"):
-                                st.session_state.linea_mgr.set_stato(live_line["id"], "Attiva", "")
-                                st.rerun()
+                        if auth.can_write(_role):
+                            if stato == "Attiva":
+                                if st.button("STOP", key=f"scada_stop_{live_line['id']}_{line_id}", width="stretch"):
+                                    st.session_state.linea_mgr.set_stato(live_line["id"], "Ferma", "Manuale")
+                                    st.rerun()
+                            else:
+                                if st.button("START", key=f"scada_start_{live_line['id']}_{line_id}", width="stretch"):
+                                    st.session_state.linea_mgr.set_stato(live_line["id"], "Attiva", "")
+                                    st.rerun()
                     with b4:
                         if st.button("Dettaglio", key=f"scada_det_{live_line['id']}_{line_id}", width="stretch"):
                             goto_linea(live_line["id"])
@@ -1278,16 +1361,17 @@ def render_enterprise_graphs():
         selected_labels = [f"L{lid}" for lid in selected]
         st.write(f"Linee target: **{', '.join(selected_labels)}**")
         st.write(f"Range target: **{start_day} -> {end_day}**")
-        if st.button("Salva target per linee selezionate", key="analytics_set_target_btn", width="stretch"):
-            for lid in selected:
-                st.session_state.linea_mgr.set_obiettivo_giornaliero_range(
-                    int(lid),
-                    start_day,
-                    end_day,
-                    int(target_value),
-                )
-            st.success("Target salvato in analytics.")
-            st.rerun()
+        if auth.can_write(st.session_state.user["role"]):
+            if st.button("Salva target per linee selezionate", key="analytics_set_target_btn", width="stretch"):
+                for lid in selected:
+                    st.session_state.linea_mgr.set_obiettivo_giornaliero_range(
+                        int(lid),
+                        start_day,
+                        end_day,
+                        int(target_value),
+                    )
+                st.success("Target salvato in analytics.")
+                st.rerun()
 
 
 def render_enterprise_planner():
@@ -1307,14 +1391,15 @@ def render_enterprise_planner():
             ["due_date", "min_setup", "balanced", "both", "all"],
             key="planner_strategy",
         )
-        if st.button("Genera nuovo piano", width="stretch", key="planner_run_btn"):
-            try:
-                res = mgr.run_scheduler(strategy=strategy)
-                run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
-                st.success(f"Piani salvati: {run_text}")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Errore planner: {e}")
+        if auth.can_write(st.session_state.user["role"]):
+            if st.button("Genera nuovo piano", width="stretch", key="planner_run_btn"):
+                try:
+                    res = mgr.run_scheduler(strategy=strategy)
+                    run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
+                    st.success(f"Piani salvati: {run_text}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Errore planner: {e}")
     with c2:
         stats = mgr.get_input_stats()
         get_cal = getattr(mgr, "get_scheduler_calendar_config", None)
@@ -1393,25 +1478,26 @@ def render_enterprise_planner():
         key="planner_editor",
     )
 
-    if st.button("Salva come piano manuale", key="planner_save_manual_btn"):
-        try:
-            edited_to_save = edited.copy()
-            edited_to_save["start_at"] = pd.to_datetime(edited_to_save["start_at"], errors="coerce")
-            edited_to_save["end_at"] = pd.to_datetime(edited_to_save["end_at"], errors="coerce")
-            missing_dt = edited_to_save["start_at"].isna() | edited_to_save["end_at"].isna()
-            if missing_dt.any():
-                bad_orders = edited_to_save.loc[missing_dt, "order_id"].astype(str).head(5).tolist()
-                st.error(
-                    "Compila start_at e end_at per tutti i task prima di salvare. "
-                    f"Ordini con date mancanti: {', '.join(bad_orders)}"
-                )
-                return
+    if auth.can_write(st.session_state.user["role"]):
+        if st.button("Salva come piano manuale", key="planner_save_manual_btn"):
+            try:
+                edited_to_save = edited.copy()
+                edited_to_save["start_at"] = pd.to_datetime(edited_to_save["start_at"], errors="coerce")
+                edited_to_save["end_at"] = pd.to_datetime(edited_to_save["end_at"], errors="coerce")
+                missing_dt = edited_to_save["start_at"].isna() | edited_to_save["end_at"].isna()
+                if missing_dt.any():
+                    bad_orders = edited_to_save.loc[missing_dt, "order_id"].astype(str).head(5).tolist()
+                    st.error(
+                        "Compila start_at e end_at per tutti i task prima di salvare. "
+                        f"Ordini con date mancanti: {', '.join(bad_orders)}"
+                    )
+                    return
 
-            run_id = mgr.save_manual_run(edited_to_save.to_dict("records"))
-            st.success(f"Piano manuale salvato con run_id={run_id}")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Errore salvataggio piano manuale: {e}")
+                run_id = mgr.save_manual_run(edited_to_save.to_dict("records"))
+                st.success(f"Piano manuale salvato con run_id={run_id}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Errore salvataggio piano manuale: {e}")
 
     unscheduled = mgr.get_unscheduled_for_run(int(selected_run_id))
     with st.expander("Ordini non schedulati", expanded=False):
@@ -1424,336 +1510,6 @@ def render_enterprise_planner():
                 qty = u.get("qty", 0)
                 reason = u.get("reason", "")
                 st.write(f"- {oid} | {code} | qta={qty} | {reason}")
-
-
-def render_scheduler_section():
-    st.divider()
-    st.subheader("📅 Schedulatore (solo DB)")
-
-    mgr = st.session_state.get("scheduler_mgr")
-    if mgr is None:
-        err = st.session_state.get("scheduler_init_error", "Scheduler non inizializzato.")
-        st.error(f"Scheduler non disponibile: {err}")
-        return
-
-    c2, c3 = st.columns([1.4, 1.8])
-
-    with c2:
-        strategy = st.selectbox(
-            "Strategia",
-            ["due_date", "min_setup", "balanced", "both", "all"],
-            key="sched_strategy",
-        )
-        if st.button("Esegui schedulazione", width="stretch"):
-            try:
-                res = mgr.run_scheduler(strategy=strategy)
-                run_text = ", ".join([f"{r['strategy']}#{r['run_id']}" for r in res["saved_runs"]])
-                st.success(f"Run salvati: {run_text}")
-            except Exception as e:
-                st.error(f"Errore esecuzione schedulatore: {e}")
-
-    with c3:
-        try:
-            stats = mgr.get_input_stats()
-            all_sched_lines = mgr.get_scheduler_lines()
-            total_sched_lines = len(all_sched_lines) if all_sched_lines else 0
-            st.caption("Stato tabelle sched_*")
-            st.write(
-                f"Linee sched: **{total_sched_lines}** | Ordini: **{stats['sched_orders']}** | "
-                f"Cycle rows: **{stats['sched_cycle_times']}** | Runs: **{stats['sched_runs']}**"
-            )
-        except Exception as e:
-            st.caption(f"Statistiche non disponibili: {e}")
-            all_sched_lines = []
-
-    runs = mgr.get_recent_runs(limit=30)
-    if not runs:
-        st.info("Nessun run schedulatore disponibile.")
-        return
-
-    def _run_label(r):
-        created = str(r.get("created_at", ""))
-        return f"Run {r['run_id']} | {r['strategy']} | {created}"
-
-    run_ids = [r["run_id"] for r in runs]
-    run_by_id = {r["run_id"]: r for r in runs}
-    selected_run_id = st.selectbox(
-        "Run salvati",
-        run_ids,
-        format_func=lambda rid: _run_label(run_by_id[rid]),
-        key="sched_selected_run_id",
-    )
-
-    row = run_by_id[selected_run_id]
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Strategia", row["strategy"])
-    k2.metric("Ordini schedulati", row["scheduled_orders"])
-    k3.metric("Totale ritardo (min)", f"{row['total_tardy_min']}")
-    k4.metric("Totale setup (min)", f"{row['total_setup_min']}")
-
-    tasks = mgr.get_tasks_for_run(selected_run_id)
-    df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()
-    if not df_tasks.empty:
-        line_domain = [r["line_id"] for r in all_sched_lines] if all_sched_lines else None
-        st.altair_chart(grafico_schedulazione_tasks(df_tasks, all_lines=line_domain), width="stretch")
-        with st.expander("Dettaglio task", expanded=False):
-            st.dataframe(df_tasks, width="stretch")
-    else:
-        st.caption("Nessun task per il run selezionato.")
-
-    unscheduled = mgr.get_unscheduled_for_run(selected_run_id)
-    df_uns = pd.DataFrame(unscheduled) if unscheduled else pd.DataFrame()
-    with st.expander("Ordini non schedulati", expanded=False):
-        if df_uns.empty:
-            st.caption("Nessun ordine non schedulato.")
-        else:
-            st.dataframe(df_uns, width="stretch")
-
-
-#
-# pagine
-#
-def render_home():
-    global model, _ai_key_index
-    st.title("📊 Controllo Produzione Giornaliera")
-
-    # totali
-    tot_prodotti = st.session_state.linea_mgr.get_totale_produzione()
-    tot_target = st.session_state.ordine_mgr.get_totale_target()
-    ordini_raw = st.session_state.ordine_mgr.get_ordini()
-
-    progress_dict = st.session_state.linea_mgr.get_produzione_per_ordine()
-
-    # metriche
-    col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Pezzi Fatti Oggi", tot_prodotti)
-    col2.metric("🎯 Obiettivo Totale", tot_target)
-    mancanti = max(tot_target - tot_prodotti, 0)
-    col3.metric("📉 Pezzi Mancanti", mancanti)
-
-    # avanzamento
-    if tot_target > 0:
-        prog_generale = min(tot_prodotti / tot_target, 1.0)
-        st.progress(prog_generale, text=f"Avanzamento Turno: {int(prog_generale*100)}%")
-    else:
-        st.info("Nessun ordine. Usa la barra a sinistra per crearne uno.")
-
-    st.divider()
-
-    # Sidebar
-    with st.sidebar:
-        st.header("🎛️ Operatore")
-
-        # reset
-        with st.expander("🛠️ Reset Turno"):
-            if st.button("⚠️ NUOVO TURNO (Cancella Ordini + Reset Contatori)"):
-                st.session_state.ordine_mgr.reset_giornata()
-                st.warning("Turno resettato.")
-                st.rerun()
-
-        # creazione ordini
-        with st.expander("📄 Nuovo Ordine", expanded=True):
-            modelli = ["Porsche", "Ferrari", "Audi", "Mercedes"]
-            mod = st.selectbox("Modello", modelli)
-            cod = st.text_input("Codice", "ORD-01")
-            qta = st.number_input("Qta", 1, 5000, 500)
-            dead = st.time_input("Scadenza")
-            if st.button("Inserisci"):
-                st.session_state.ordine_mgr.add_ordine(cod, mod, qta, str(dead))
-                st.rerun()
-
-        st.divider()
-        st.header("🏭 Linee produttive")
-
-        linee = st.session_state.linea_mgr.get_status()
-        st.caption("Clicca su una linea per aprire la pagina dedicata.")
-        for l in linee:
-            color = "🟢" if l["stato"] == "Attiva" else "🔴"
-            if st.button(f"{color} {l['nome']}", key=f"nav_{l['id']}"):
-                goto_linea(l["id"])
-
-        st.divider()
-        st.subheader("⚡ Controlli rapidi")
-
-        for l in linee:
-            color = "🟢" if l["stato"] == "Attiva" else "🔴"
-            titolo = f"{color} {l['nome']}"
-
-            with st.expander(titolo):
-                st.caption(f"Vincoli: {l['vincoli']}")
-
-                # avanzamento ordine
-                if l["target_assegnato"]:
-                    ord_code = l["target_assegnato"]
-                    target_ord = next((o["quantita"] for o in ordini_raw if o["codice"] == ord_code), 0)
-                    fatti_totali = progress_dict.get(ord_code, 0)
-
-                    st.info(f"🔨 Lavora su: **{ord_code}**")
-                    perc = int((fatti_totali / target_ord * 100)) if target_ord > 0 else 0
-                    st.write(f"Avanzamento Ordine: **{fatti_totali}** / {target_ord} ({perc}%)")
-                    st.progress(min(perc / 100, 1.0))
-                else:
-                    st.warning("💤 In attesa")
-
-                # contatori linea
-                c1, c2 = st.columns(2)
-                c1.metric("Buoni (Qui)", l["pezzi_fatti"])
-                c2.metric("Scarti (Qui)", l["pezzi_scarti"])
-
-                # pulsanti produzione manuale
-                if st.button(f"+10 OK L{l['id']}", key=f"ok_{l['id']}"):
-                    st.session_state.linea_mgr.update_counts(l["id"], buoni=10)
-                    st.rerun()
-
-                if st.button(f"+1 KO L{l['id']}", key=f"ko_{l['id']}"):
-                    st.session_state.linea_mgr.update_counts(l["id"], scarti=1)
-                    st.rerun()
-
-                # start/stop
-                if l["stato"] == "Attiva":
-                    if st.button(f"STOP L{l['id']}", key=f"stop_{l['id']}"):
-                        st.session_state.linea_mgr.set_stato(l["id"], "Ferma", "Manuale")
-                        st.rerun()
-                else:
-                    if st.button(f"START L{l['id']}", key=f"start_{l['id']}"):
-                        st.session_state.linea_mgr.set_stato(l["id"], "Attiva", "")
-                        st.rerun()
-
-    # Main: chat + KPI
-    col_chat, col_kpi = st.columns([2, 1])
-
-    # CHAT
-    with col_chat:
-        st.subheader("🤖 AI Factory Manager")
-
-        if model is None:
-            st.info("AI non disponibile: configura GOOGLE_API_KEY in secrets per usare il chatbot.")
-        else:
-            linee = st.session_state.linea_mgr.get_status()
-            context_lines = "\n".join(
-                [f"- L{l['id']} ({l['nome']}): Stato {l['stato']} | Ordine: {l['target_assegnato']} | Prod: {l['pezzi_fatti']}"
-                 for l in linee]
-            )
-            context_orders = st.session_state.ordine_mgr.get_ordini_text()
-
-            if "messages" not in st.session_state:
-                st.session_state.messages = [{"role": "assistant", "content": "Ciao! Gestisco la schedulazione. Chiedimi di assegnare gli ordini."}]
-
-            for i, msg in enumerate(st.session_state.messages):
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-                    if msg["role"] == "assistant":
-                        if st.button("\U0001F3A7", key=f"tts_btn_{i}"):
-                            rate = st.session_state.get("voice_rate", 1.0)
-                            pitch = st.session_state.get("voice_pitch", 1.0)
-                            volume = st.session_state.get("voice_volume", 1.0)
-                            voice_idx = st.session_state.get("voice_idx")
-                            speak_in_browser(msg["content"], rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
-            used_voice = False
-            voice_text = ""
-            tts_enabled = False
-            with st.expander("Voce (beta)", expanded=False):
-                tts_enabled = st.checkbox("Leggi risposta ad alta voce", value=True, key="voice_tts")
-                rate = st.slider("Velocita voce", min_value=0.7, max_value=1.3, value=1.0, step=0.05, key="voice_rate")
-                pitch = st.slider("Tono voce", min_value=0.8, max_value=1.2, value=1.0, step=0.05, key="voice_pitch")
-                volume = st.slider("Volume voce", min_value=0.5, max_value=1.0, value=1.0, step=0.05, key="voice_volume")
-                voice_payload = voice_component()
-                voice_text = ""
-                voice_idx = None
-                if isinstance(voice_payload, dict):
-                    if "voice" in voice_payload:
-                        try:
-                            voice_idx = int(voice_payload["voice"])
-                        except Exception:
-                            voice_idx = None
-                    if "text" in voice_payload and isinstance(voice_payload["text"], str):
-                        voice_text = voice_payload["text"]
-                elif isinstance(voice_payload, str):
-                    voice_text = voice_payload
-                if voice_idx is not None:
-                    st.session_state.voice_idx = voice_idx
-                elif "voice_idx" in st.session_state:
-                    pass
-                if voice_text:
-                    used_voice = True
-
-            prompt = st.chat_input("Es: 'Schedula gli ordini sulle linee migliori'")
-            if not prompt and used_voice:
-                prompt = voice_text
-
-            if prompt:
-                st.session_state.messages.append({"role": "user", "content": prompt})
-
-                full_prompt = f"""
-Sei il Responsabile Produzione.
-
-DATI LIVE:
-{context_lines}
-
-ORDINI ATTIVI:
-{context_orders}
-
-VINCOLI:
-L1: Porsche/Mercedes | L2,L3: Ferrari/Audi | L4,L5: Jolly.
-
-DOMANDA UTENTE: {prompt}
-
-ISTRUZIONI:
-1) Se chiedono INFO: rispondi a parole.
-2) Se chiedono AZIONI (schedula, sposta, ferma, avvia): genera SOLO JSON.
-   Formato JSON: [{{"comando":"assegna_linea","linea_id":1,"codice_ordine":"ORD-01"}}]
-   Altri comandi ammessi: "ferma_linea" (linea_id, motivo), "avvia_linea" (linea_id), "crea_ordine" (order_id, code, qty, due_date YYYY-MM-DD).
-                """
-
-                with st.spinner("Analisi..."):
-                    try:
-                        try:
-                            response = model.generate_content(full_prompt)
-                        except Exception as e:
-                            if is_quota_error(e) and _ai_key_index + 1 < len(_ai_keys):
-                                _ai_key_index += 1
-                                model = make_model(_ai_keys[_ai_key_index])
-                                response = model.generate_content(full_prompt)
-                            else:
-                                raise
-                        answ = response.text.strip()
-
-                        json_found = _extract_json_payload(answ)
-
-                        if json_found:
-                            report = esegui_azioni_ai(json_found)
-                            st.session_state.messages.append({"role": "assistant", "content": report})
-                            if used_voice and tts_enabled:
-                                speak_in_browser(report, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
-                        else:
-                            st.session_state.messages.append({"role": "assistant", "content": answ})
-                            if used_voice and tts_enabled:
-                                speak_in_browser(answ, rate=rate, pitch=pitch, volume=volume, voice_idx=voice_idx)
-                        time.sleep(0.2)
-                        st.rerun()
-                    except Exception as e:
-                        st.session_state.messages.append({"role": "assistant", "content": f"Errore AI: {e}"})
-                        st.rerun()
-
-    # KPI ORDINI
-    with col_kpi:
-        st.info("📋 **Stato Avanzamento Ordini**")
-        if ordini_raw:
-            for o in ordini_raw:
-                codice = o["codice"]
-                target = o["quantita"]
-                fatti = progress_dict.get(codice, 0)
-                perc = int((fatti / target) * 100) if target > 0 else 0
-
-                st.write(f"**{codice}**: {o['modello']}")
-                st.caption(f"{fatti} su {target} pz ({perc}%)")
-                st.progress(min(perc / 100, 1.0))
-                st.write("---")
-        else:
-            st.caption("Nessun ordine attivo.")
-
-
-    render_scheduler_section()
 
 
 def render_linea_detail(linea_id: int):
@@ -1822,16 +1578,17 @@ def render_linea_detail(linea_id: int):
     st.divider()
 
     # Imposta obiettivo
-    st.subheader("🎯 Imposta obiettivo giornaliero (opzionale)")
-    st.caption("Serve per il confronto nel grafico. Se non lo imposti, l'obiettivo resta 0.")
-    col_t1, col_t2 = st.columns([1, 2])
-    with col_t1:
-        target_day = st.number_input("Target OK al giorno", min_value=0, max_value=200000, value=0, step=10)
-    with col_t2:
-        if st.button("Applica target al range selezionato"):
-            st.session_state.linea_mgr.set_obiettivo_giornaliero_range(linea_id, start_day, end_day, int(target_day))
-            st.success("Obiettivo salvato.")
-            st.rerun()
+    if auth.can_write(st.session_state.user["role"]):
+        st.subheader("🎯 Imposta obiettivo giornaliero (opzionale)")
+        st.caption("Serve per il confronto nel grafico. Se non lo imposti, l'obiettivo resta 0.")
+        col_t1, col_t2 = st.columns([1, 2])
+        with col_t1:
+            target_day = st.number_input("Target OK al giorno", min_value=0, max_value=200000, value=0, step=10)
+        with col_t2:
+            if st.button("Applica target al range selezionato"):
+                st.session_state.linea_mgr.set_obiettivo_giornaliero_range(linea_id, start_day, end_day, int(target_day))
+                st.success("Obiettivo salvato.")
+                st.rerun()
 
     st.divider()
 
@@ -1877,6 +1634,12 @@ def render_linea_detail(linea_id: int):
 # app router (enterprise)
 #
 apply_enterprise_theme()
+
+if "user" not in st.session_state:
+    _render_login_page()
+    st.stop()
+
+_render_user_bar()
 
 section = st.session_state.get("app_section", "home")
 if section == "home":

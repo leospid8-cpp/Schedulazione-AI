@@ -13,6 +13,10 @@ from tts_utils import VOCI_DISPONIBILI, genera_audio
 
 st.set_page_config(page_title="Chat Vocale", page_icon="🎤", layout="wide")
 
+if "user" not in st.session_state:
+    st.error("Accesso non autorizzato. Effettua il login dalla pagina principale.")
+    st.stop()
+
 # Configurazione AI: stessa logica di app.py (GOOGLE_API_KEY / GOOGLE_API_KEY_2)
 _ai_keys = []
 for _k in ("GOOGLE_API_KEY", "GOOGLE_API_KEY_2"):

@@ -4,4 +4,4 @@ __pycache__/
 .env
 *.pyc
 *.pyo
-.streamlit/secrets.toml
+utenti_mvp.txt
