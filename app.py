@@ -10,7 +10,7 @@ import altair as alt
 import streamlit.components.v1 as components
 
 from backend import DatabaseManager, LineaManager, OrdineManager
-from export_report import genera_pdf, genera_excel
+from export_report import genera_pdf, genera_excel, salva_su_disco
 from tts_utils import genera_audio
 import auth
 
@@ -1319,10 +1319,13 @@ def render_enterprise_graphs():
         with _gc1:
             try:
                 _gpdf = genera_pdf(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
+                _gpdf_name = f"report_{_nome_safe_g}_{_date_str_g}.pdf"
+                _gpdf_path = salva_su_disco(_gpdf_name, _gpdf)
+                st.success(f"PDF salvato in: `{_gpdf_path}`")
                 st.download_button(
                     "📄 Scarica PDF",
                     data=_gpdf,
-                    file_name=f"report_{_nome_safe_g}_{_date_str_g}.pdf",
+                    file_name=_gpdf_name,
                     mime="application/pdf",
                     use_container_width=True,
                     key=f"gx_pdf_{_lid_g}",
@@ -1332,10 +1335,13 @@ def render_enterprise_graphs():
         with _gc2:
             try:
                 _gxls = genera_excel(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
+                _gxls_name = f"report_{_nome_safe_g}_{_date_str_g}.xlsx"
+                _gxls_path = salva_su_disco(_gxls_name, _gxls)
+                st.success(f"Excel salvato in: `{_gxls_path}`")
                 st.download_button(
                     "📊 Scarica Excel",
                     data=_gxls,
-                    file_name=f"report_{_nome_safe_g}_{_date_str_g}.xlsx",
+                    file_name=_gxls_name,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key=f"gx_xls_{_lid_g}",
@@ -1605,10 +1611,13 @@ def render_linea_detail(linea_id: int):
     with _exp_c1:
         try:
             _pdf_bytes = genera_pdf(linea['nome'], start_day, end_day, df, _eventi_exp)
+            _pdf_name = f"report_{_linea_safe}_{_date_range}.pdf"
+            _pdf_path = salva_su_disco(_pdf_name, _pdf_bytes)
+            st.success(f"PDF salvato in: `{_pdf_path}`")
             st.download_button(
                 "📄 Scarica PDF",
                 data=_pdf_bytes,
-                file_name=f"report_{_linea_safe}_{_date_range}.pdf",
+                file_name=_pdf_name,
                 mime="application/pdf",
                 use_container_width=True,
                 key="det_pdf",
@@ -1618,10 +1627,13 @@ def render_linea_detail(linea_id: int):
     with _exp_c2:
         try:
             _xls_bytes = genera_excel(linea['nome'], start_day, end_day, df, _eventi_exp)
+            _xls_name = f"report_{_linea_safe}_{_date_range}.xlsx"
+            _xls_path = salva_su_disco(_xls_name, _xls_bytes)
+            st.success(f"Excel salvato in: `{_xls_path}`")
             st.download_button(
                 "📊 Scarica Excel",
                 data=_xls_bytes,
-                file_name=f"report_{_linea_safe}_{_date_range}.xlsx",
+                file_name=_xls_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 key="det_xls",

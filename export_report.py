@@ -1,6 +1,18 @@
 import io
+import os
 from datetime import date
+from pathlib import Path
 import pandas as pd
+
+EXPORTS_DIR = Path(__file__).parent / "exports"
+
+
+def salva_su_disco(nome_file: str, contenuto: bytes) -> Path:
+    """Salva i byte nel file indicato dentro la cartella exports/ e restituisce il percorso."""
+    EXPORTS_DIR.mkdir(exist_ok=True)
+    percorso = EXPORTS_DIR / nome_file
+    percorso.write_bytes(contenuto)
+    return percorso
 
 
 def genera_pdf(linea_nome: str, start_day: date, end_day: date,

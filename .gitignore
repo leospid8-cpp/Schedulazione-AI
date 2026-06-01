@@ -4,4 +4,7 @@ __pycache__/
 .env
 *.pyc
 *.pyo
+.claude/
 utenti_mvp.txt
+exports/*.pdf
+exports/*.xlsx
