@@ -10,6 +10,7 @@ from psycopg2.extras import execute_batch
 from team_pack.strategy_due_date import run as run_due_date
 from team_pack.strategy_min_setup import run as run_min_setup
 from team_pack.strategy_balanced import run as run_balanced
+from team_pack.strategy_setup_aware import run as run_setup_aware
 
 
 def load_dataset(path: str) -> Dict[str, Any]:
@@ -33,7 +34,7 @@ def ensure_strategy_constraint(cursor):
         """
         ALTER TABLE public.sched_runs
         ADD CONSTRAINT sched_runs_strategy_check
-        CHECK (strategy IN ('due_date', 'min_setup', 'balanced', 'manual'));
+        CHECK (strategy IN ('due_date', 'min_setup', 'balanced', 'manual', 'setup_aware', 'auto'));
         """
     )
 
@@ -484,12 +485,27 @@ def run_requested_strategies(dataset: Dict[str, Any], strategy: str) -> List[Dic
         return [_with_calendar(run_min_setup(dataset))]
     if strategy == "balanced":
         return [_with_calendar(run_balanced(dataset))]
+    if strategy == "setup_aware":
+        return [_with_calendar(run_setup_aware(dataset))]
+    if strategy == "auto":
+        results = [
+            _with_calendar(run_due_date(dataset)),
+            _with_calendar(run_min_setup(dataset)),
+            _with_calendar(run_balanced(dataset)),
+            _with_calendar(run_setup_aware(dataset)),
+        ]
+        best = min(results, key=lambda r: r["kpi"]["objective_score"])
+        best["selected_strategy"] = best["strategy"]
+        best["strategy"] = "auto"
+        return [best]
     if strategy == "both":
         return [_with_calendar(run_due_date(dataset)), _with_calendar(run_min_setup(dataset))]
+    # "all" — tutti e quattro gli algoritmi
     return [
         _with_calendar(run_due_date(dataset)),
         _with_calendar(run_min_setup(dataset)),
         _with_calendar(run_balanced(dataset)),
+        _with_calendar(run_setup_aware(dataset)),
     ]
 
 
@@ -500,7 +516,7 @@ def main():
     parser.add_argument("--dataset", default="team_pack/data/scheduler_dataset.json")
     parser.add_argument("--schema", default="team_pack/scheduler_schema.sql")
     parser.add_argument("--db-url", default=os.getenv("SUPABASE_URL"))
-    parser.add_argument("--strategy", choices=["due_date", "min_setup", "balanced", "both", "all"], default="both")
+    parser.add_argument("--strategy", choices=["due_date", "min_setup", "balanced", "both", "all", "setup_aware", "auto"], default="both")
     parser.add_argument("--skip-schema", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
