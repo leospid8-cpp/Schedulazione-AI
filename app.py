@@ -10,7 +10,7 @@ import altair as alt
 import streamlit.components.v1 as components
 
 from backend import DatabaseManager, LineaManager, OrdineManager
-from export_report import genera_pdf, genera_excel, salva_su_disco
+from export_report import genera_pdf, genera_excel
 from tts_utils import genera_audio
 import auth
 
@@ -1313,41 +1313,53 @@ def render_enterprise_graphs():
         _nome_g = line_map[_lid_g]
         _nome_safe_g = _nome_g.replace(" ", "_").replace("/", "-")
         _df_g_clean = _df_g.drop(columns=['linea'], errors='ignore')
-        _eventi_g = st.session_state.linea_mgr.get_eventi_nel_range(int(_lid_g), start_day, end_day)
         st.write(f"**L{_lid_g} — {_nome_g}**")
+        _export_ctx = f"graphs_{_lid_g}_{_date_str_g}"
+        _pdf_key = f"export_pdf_{_export_ctx}"
+        _pdf_name_key = f"export_pdf_name_{_export_ctx}"
+        _xls_key = f"export_xls_{_export_ctx}"
+        _xls_name_key = f"export_xls_name_{_export_ctx}"
         _gc1, _gc2 = st.columns(2)
         with _gc1:
-            try:
-                _gpdf = genera_pdf(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
-                _gpdf_name = f"report_{_nome_safe_g}_{_date_str_g}.pdf"
-                _gpdf_path = salva_su_disco(_gpdf_name, _gpdf)
-                st.success(f"PDF salvato in: `{_gpdf_path}`")
+            if st.button("📄 Genera PDF", key=f"gen_pdf_{_export_ctx}", use_container_width=True):
+                try:
+                    _eventi_g = st.session_state.linea_mgr.get_eventi_nel_range(int(_lid_g), start_day, end_day)
+                    _gpdf = genera_pdf(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
+                    _gpdf_name = f"report_{_nome_safe_g}_{_date_str_g}.pdf"
+                    st.session_state[_pdf_key] = _gpdf
+                    st.session_state[_pdf_name_key] = _gpdf_name
+                    st.success("PDF generato. Ora puoi scaricarlo.")
+                except Exception as _e:
+                    st.error(f"Errore PDF L{_lid_g}: {_e}")
+            if st.session_state.get(_pdf_key):
                 st.download_button(
                     "📄 Scarica PDF",
-                    data=_gpdf,
-                    file_name=_gpdf_name,
+                    data=st.session_state[_pdf_key],
+                    file_name=st.session_state[_pdf_name_key],
                     mime="application/pdf",
                     use_container_width=True,
-                    key=f"gx_pdf_{_lid_g}",
+                    key=f"download_pdf_{_export_ctx}",
                 )
-            except Exception as _e:
-                st.error(f"Errore PDF L{_lid_g}: {_e}")
         with _gc2:
-            try:
-                _gxls = genera_excel(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
-                _gxls_name = f"report_{_nome_safe_g}_{_date_str_g}.xlsx"
-                _gxls_path = salva_su_disco(_gxls_name, _gxls)
-                st.success(f"Excel salvato in: `{_gxls_path}`")
+            if st.button("📊 Genera Excel", key=f"gen_xls_{_export_ctx}", use_container_width=True):
+                try:
+                    _eventi_g = st.session_state.linea_mgr.get_eventi_nel_range(int(_lid_g), start_day, end_day)
+                    _gxls = genera_excel(_nome_g, start_day, end_day, _df_g_clean, _eventi_g)
+                    _gxls_name = f"report_{_nome_safe_g}_{_date_str_g}.xlsx"
+                    st.session_state[_xls_key] = _gxls
+                    st.session_state[_xls_name_key] = _gxls_name
+                    st.success("Excel generato. Ora puoi scaricarlo.")
+                except Exception as _e:
+                    st.error(f"Errore Excel L{_lid_g}: {_e}")
+            if st.session_state.get(_xls_key):
                 st.download_button(
                     "📊 Scarica Excel",
-                    data=_gxls,
-                    file_name=_gxls_name,
+                    data=st.session_state[_xls_key],
+                    file_name=st.session_state[_xls_name_key],
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
-                    key=f"gx_xls_{_lid_g}",
+                    key=f"download_xls_{_export_ctx}",
                 )
-            except Exception as _e:
-                st.error(f"Errore Excel L{_lid_g}: {_e}")
 
     st.divider()
     st.subheader("Imposta Target In Analytics")
@@ -1645,40 +1657,52 @@ def render_linea_detail(linea_id: int):
     st.subheader("📥 Esporta Report")
     _linea_safe = linea['nome'].replace(" ", "_").replace("/", "-")
     _date_range = f"{start_day}_{end_day}"
-    _eventi_exp = st.session_state.linea_mgr.get_eventi_nel_range(linea_id, start_day, end_day)
+    _export_ctx = f"detail_{linea_id}_{_date_range}"
+    _pdf_key = f"export_pdf_{_export_ctx}"
+    _pdf_name_key = f"export_pdf_name_{_export_ctx}"
+    _xls_key = f"export_xls_{_export_ctx}"
+    _xls_name_key = f"export_xls_name_{_export_ctx}"
     _exp_c1, _exp_c2 = st.columns(2)
     with _exp_c1:
-        try:
-            _pdf_bytes = genera_pdf(linea['nome'], start_day, end_day, df, _eventi_exp)
-            _pdf_name = f"report_{_linea_safe}_{_date_range}.pdf"
-            _pdf_path = salva_su_disco(_pdf_name, _pdf_bytes)
-            st.success(f"PDF salvato in: `{_pdf_path}`")
+        if st.button("📄 Genera PDF", key=f"gen_pdf_{_export_ctx}", use_container_width=True):
+            try:
+                _eventi_exp = st.session_state.linea_mgr.get_eventi_nel_range(linea_id, start_day, end_day)
+                _pdf_bytes = genera_pdf(linea['nome'], start_day, end_day, df, _eventi_exp)
+                _pdf_name = f"report_{_linea_safe}_{_date_range}.pdf"
+                st.session_state[_pdf_key] = _pdf_bytes
+                st.session_state[_pdf_name_key] = _pdf_name
+                st.success("PDF generato. Ora puoi scaricarlo.")
+            except Exception as _e:
+                st.error(f"Errore PDF: {_e}")
+        if st.session_state.get(_pdf_key):
             st.download_button(
                 "📄 Scarica PDF",
-                data=_pdf_bytes,
-                file_name=_pdf_name,
+                data=st.session_state[_pdf_key],
+                file_name=st.session_state[_pdf_name_key],
                 mime="application/pdf",
                 use_container_width=True,
-                key="det_pdf",
+                key=f"download_pdf_{_export_ctx}",
             )
-        except Exception as _e:
-            st.error(f"Errore PDF: {_e}")
     with _exp_c2:
-        try:
-            _xls_bytes = genera_excel(linea['nome'], start_day, end_day, df, _eventi_exp)
-            _xls_name = f"report_{_linea_safe}_{_date_range}.xlsx"
-            _xls_path = salva_su_disco(_xls_name, _xls_bytes)
-            st.success(f"Excel salvato in: `{_xls_path}`")
+        if st.button("📊 Genera Excel", key=f"gen_xls_{_export_ctx}", use_container_width=True):
+            try:
+                _eventi_exp = st.session_state.linea_mgr.get_eventi_nel_range(linea_id, start_day, end_day)
+                _xls_bytes = genera_excel(linea['nome'], start_day, end_day, df, _eventi_exp)
+                _xls_name = f"report_{_linea_safe}_{_date_range}.xlsx"
+                st.session_state[_xls_key] = _xls_bytes
+                st.session_state[_xls_name_key] = _xls_name
+                st.success("Excel generato. Ora puoi scaricarlo.")
+            except Exception as _e:
+                st.error(f"Errore Excel: {_e}")
+        if st.session_state.get(_xls_key):
             st.download_button(
                 "📊 Scarica Excel",
-                data=_xls_bytes,
-                file_name=_xls_name,
+                data=st.session_state[_xls_key],
+                file_name=st.session_state[_xls_name_key],
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                key="det_xls",
+                key=f"download_xls_{_export_ctx}",
             )
-        except Exception as _e:
-            st.error(f"Errore Excel: {_e}")
 
 
 #
