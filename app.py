@@ -1405,11 +1405,13 @@ def render_enterprise_planner():
     c1, c2 = st.columns([1.2, 2.8])
     with c1:
         _STRATEGY_LABELS = {
-            "due_date":  "Due Date — priorità scadenza",
-            "min_setup": "Min Setup — minimizza attrezzaggi",
-            "balanced":  "Balanced — scadenza + setup",
-            "both":      "Both — Due Date + Min Setup",
-            "all":       "All — tutti e tre gli algoritmi",
+            "due_date":    "Due Date — priorità scadenza",
+            "min_setup":   "Min Setup — minimizza attrezzaggi",
+            "balanced":    "Balanced — scadenza + setup",
+            "setup_aware": "Setup aware — riduce i cambi codice",
+            "auto":        "Auto — sceglie il piano migliore",
+            "both":        "Both — Due Date + Min Setup",
+            "all":         "All — tutti e quattro gli algoritmi",
         }
         _STRATEGY_KEYS = list(_STRATEGY_LABELS.keys())
         strategy = st.selectbox(
@@ -1436,13 +1438,24 @@ def render_enterprise_planner():
                 "**Obiettivo:** bilanciare puntualità delle consegne e "
                 "efficienza produttiva."
             ),
+            "setup_aware": (
+                "Greedy globale che a ogni passo sceglie la coppia ordine/linea con score migliore. "
+                "Applica un bonus quando il codice è già montato sulla linea, raggruppando "
+                "gli ordini dello stesso tipo e riducendo i cambi formato. "
+                "**Obiettivo:** minimizzare setup totale mantenendo basso il ritardo."
+            ),
+            "auto": (
+                "Esegue **Due Date**, **Min Setup**, **Balanced** e **Setup Aware**, "
+                "calcola l'`objective_score` di ciascun piano e salva solo il migliore. "
+                "**Obiettivo:** massima qualità automatica senza scegliere la strategia manualmente."
+            ),
             "both": (
                 "Esegue **Due Date** e **Min Setup** in parallelo e salva entrambi i piani. "
                 "Utile per confrontare i KPI delle due strategie sullo stesso insieme di ordini."
             ),
             "all": (
-                "Esegue tutti e tre gli algoritmi (**Due Date**, **Min Setup**, **Balanced**) "
-                "e salva tre run separati. Permette di scegliere il piano migliore "
+                "Esegue tutti e quattro gli algoritmi (**Due Date**, **Min Setup**, **Balanced**, **Setup Aware**) "
+                "e salva quattro run separati. Permette di scegliere il piano migliore "
                 "confrontando i Gantt e i KPI."
             ),
         }

@@ -6,6 +6,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 EXCEL_BASE = date(1899, 12, 30)
 
+# Pesi della funzione obiettivo (oggi: priorità ai ritardi). Ritarabili qui.
+W_TARDY = 10.0
+W_SETUP = 1.0
+W_MAKESPAN = 0.2
+# Bonus (in minuti) sullo score quando il codice è già montato sulla linea.
+SAME_CODE_BONUS_MIN = 30.0
+
 
 @dataclass
 class Order:
@@ -201,6 +208,11 @@ def _kpi(tasks: List[Task], unscheduled: List[Dict[str, Any]], cfg: Dict[str, fl
         avg_completion_work = 0.0
 
     total_orders = len(tasks) + len(unscheduled)
+    objective_score = (
+        W_TARDY * total_tardy
+        + W_SETUP * total_setup
+        + W_MAKESPAN * max(0.0, makespan_work)
+    )
     return {
         "total_tardy_min": round(total_tardy, 2),
         "total_setup_min": round(total_setup, 2),
@@ -211,6 +223,7 @@ def _kpi(tasks: List[Task], unscheduled: List[Dict[str, Any]], cfg: Dict[str, fl
         "total_orders": total_orders,
         "scheduled_orders": len(tasks),
         "unscheduled_orders": len(unscheduled),
+        "objective_score": round(objective_score, 2),
     }
 
 
@@ -429,6 +442,83 @@ class MinSetupScheduler:
 
 def schedulazione_min_setup(dataset: Dict[str, Any]) -> Dict[str, Any]:
     return MinSetupScheduler(dataset).run()
+
+
+def schedulazione_setup_aware(dataset: Dict[str, Any]) -> Dict[str, Any]:
+    """Greedy globale che minimizza setup favorendo la continuità di codice sulla stessa linea.
+
+    A ogni passo sceglie la coppia (ordine, linea) con lo score minore.  Lo
+    score ordina per: ritardo binario → ritardo assoluto → setup_score (setup
+    reale meno SAME_CODE_BONUS_MIN se il codice è già montato) → end_work →
+    carico corrente della linea → line_id.  Il setup REALE salvato nel task è
+    sempre quello calcolato da _setup_time, il bonus vive solo nello score.
+    """
+    cfg = _calendar_config(dataset)
+    due_minutes = _compute_due_context(dataset, cfg)
+    orders = _to_order_objects(dataset, due_minutes)
+
+    line_ids = [str(l.get("line_id")) for l in dataset.get("lines", []) if l.get("line_id")]
+    timeline_work = {lid: float(cfg["anchor_work_abs"]) for lid in line_ids}
+    last_code: Dict[str, Optional[str]] = {
+        lid: dataset.get("current_config", {}).get(lid, {}).get("current_code")
+        for lid in line_ids
+    }
+
+    tasks: List[Task] = []
+    unscheduled: List[Dict[str, Any]] = []
+    remaining = list(orders)
+
+    while remaining:
+        best = None  # (score_tuple, order, line_id, setup, start_work, end_work, tardy)
+        non_schedulable: List[Order] = []
+
+        for order in remaining:
+            found_line = False
+            for line_id in sorted(order.eligible_lines):
+                if line_id not in timeline_work:
+                    continue
+                cycle = _safe_float(order.cycle_minutes_by_line.get(line_id), 0.0)
+                if cycle <= 0:
+                    continue
+                found_line = True
+                setup = _setup_time(dataset, line_id, last_code.get(line_id), order.code)
+                proc = order.qty * cycle
+                start_work = timeline_work[line_id] + setup
+                end_work = start_work + proc
+                tardy = max(0.0, end_work - order.due_min)
+                # Bonus solo nello score: favorisce restare sul codice già montato → raggruppa i codici uguali
+                setup_score = setup - SAME_CODE_BONUS_MIN if last_code.get(line_id) == order.code else setup
+                score = (1 if tardy > 0 else 0, tardy, setup_score, end_work, timeline_work[line_id], line_id)
+                if best is None or score < best[0]:
+                    best = (score, order, line_id, setup, start_work, end_work, tardy)
+
+            if not found_line:
+                non_schedulable.append(order)
+
+        for order in non_schedulable:
+            unscheduled.append({
+                "order_id": order.order_id,
+                "code": order.code,
+                "qty": int(order.qty) if float(order.qty).is_integer() else order.qty,
+                "reason": "No eligible line/cycle time.",
+            })
+            remaining.remove(order)
+
+        if best is None:
+            break
+
+        _, order, line_id, setup, start_work, end_work, tardy = best
+        timeline_work[line_id] = end_work
+        last_code[line_id] = order.code
+        tasks.append(_build_task(order, line_id, setup, start_work, end_work, tardy, cfg))
+        remaining.remove(order)
+
+    return {
+        "strategy": "setup_aware",
+        "tasks": _tasks_to_dict(tasks),
+        "unscheduled": unscheduled,
+        "kpi": _kpi(tasks, unscheduled, cfg),
+    }
 
 
 def schedulazione_balanced(dataset: Dict[str, Any]) -> Dict[str, Any]:
