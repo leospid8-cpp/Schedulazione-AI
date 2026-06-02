@@ -1392,11 +1392,49 @@ def render_enterprise_planner():
 
     c1, c2 = st.columns([1.2, 2.8])
     with c1:
+        _STRATEGY_LABELS = {
+            "due_date":  "Due Date — priorità scadenza",
+            "min_setup": "Min Setup — minimizza attrezzaggi",
+            "balanced":  "Balanced — scadenza + setup",
+            "both":      "Both — Due Date + Min Setup",
+            "all":       "All — tutti e tre gli algoritmi",
+        }
+        _STRATEGY_KEYS = list(_STRATEGY_LABELS.keys())
         strategy = st.selectbox(
             "Strategia",
-            ["due_date", "min_setup", "balanced", "both", "all"],
+            _STRATEGY_KEYS,
+            format_func=lambda k: _STRATEGY_LABELS[k],
             key="planner_strategy",
         )
+        _STRATEGY_DESC = {
+            "due_date": (
+                "Ordina gli ordini per data di scadenza (EDD — Earliest Due Date). "
+                "Per ogni ordine sceglie la linea che minimizza il ritardo. "
+                "**Obiettivo:** ridurre al minimo gli ordini consegnati in ritardo."
+            ),
+            "min_setup": (
+                "Algoritmo greedy che ad ogni passo sceglie la coppia ordine/linea "
+                "con il tempo di attrezzaggio più basso. "
+                "**Obiettivo:** ridurre il tempo perso in cambio-formato e massimizzare "
+                "la produzione effettiva."
+            ),
+            "balanced": (
+                "Combina i due criteri: prima evita i ritardi (come Due Date), "
+                "ma a parità di ritardo preferisce la linea con setup minore. "
+                "**Obiettivo:** bilanciare puntualità delle consegne e "
+                "efficienza produttiva."
+            ),
+            "both": (
+                "Esegue **Due Date** e **Min Setup** in parallelo e salva entrambi i piani. "
+                "Utile per confrontare i KPI delle due strategie sullo stesso insieme di ordini."
+            ),
+            "all": (
+                "Esegue tutti e tre gli algoritmi (**Due Date**, **Min Setup**, **Balanced**) "
+                "e salva tre run separati. Permette di scegliere il piano migliore "
+                "confrontando i Gantt e i KPI."
+            ),
+        }
+        st.caption(_STRATEGY_DESC[strategy])
         if auth.can_write(st.session_state.user["role"]):
             if st.button("Genera nuovo piano", width="stretch", key="planner_run_btn"):
                 try:
@@ -1437,11 +1475,12 @@ def render_enterprise_planner():
     )
 
     row = run_by_id[selected_run_id]
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Strategia", row["strategy"])
     m2.metric("Schedulati", row["scheduled_orders"])
-    m3.metric("Ritardo tot min (lav.)", f"{row['total_tardy_min']}")
-    m4.metric("Setup tot min", f"{row['total_setup_min']}")
+    m3.metric("Non schedulati", row.get("unscheduled_orders", 0))
+    m4.metric("Ritardo tot min (lav.)", f"{row['total_tardy_min']}")
+    m5.metric("Setup tot min", f"{row['total_setup_min']}")
 
     tasks = mgr.get_tasks_for_run(int(selected_run_id))
     df_tasks = pd.DataFrame(tasks) if tasks else pd.DataFrame()

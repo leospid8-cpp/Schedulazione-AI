@@ -5,6 +5,8 @@ __pycache__/
 *.pyc
 *.pyo
 .claude/
+CLAUDE.md
+.github/
 utenti_mvp.txt
 exports/*.pdf
 exports/*.xlsx

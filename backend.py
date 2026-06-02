@@ -1,10 +1,19 @@
 import psycopg2
+from psycopg2 import pool as pgpool
 from psycopg2.extras import RealDictCursor
 import streamlit as st
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import re
 import time
+
+
+@st.cache_resource
+def get_connection_pool(db_url: str):
+    """Pool condiviso (singleton cross-session). maxconn è il tetto TOTALE
+    su tutte le sessioni, non per-utente. 5 è adatto al desktop; per uso
+    web multiutente valutare 10."""
+    return pgpool.ThreadedConnectionPool(minconn=1, maxconn=5, dsn=db_url)
 
 
 class DatabaseManager:
@@ -20,26 +29,52 @@ class DatabaseManager:
             st.error("Manca SUPABASE_URL nei secrets di Streamlit.")
             st.stop()
 
-    def execute(self, sql: str, params=(), strict: bool = False):
-        conn = None
-        try:
-            conn = psycopg2.connect(self.db_url)
-            cur = conn.cursor(cursor_factory=RealDictCursor)
+    def _is_select(self, sql: str) -> bool:
+        return sql.strip().upper().startswith("SELECT")
+
+    def _run(self, conn, sql, params, is_select):
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, params)
-
-            if sql.strip().upper().startswith("SELECT"):
-                return cur.fetchall()
-
+            if is_select:
+                rows = cur.fetchall()
+                conn.commit()  # chiude la transazione: connessione pulita al pool
+                return rows
             conn.commit()
             return True
+
+    def execute(self, sql: str, params=(), strict: bool = False):
+        is_select = self._is_select(sql)
+        pool = get_connection_pool(self.db_url)
+        conn = None
+        try:
+            conn = pool.getconn()
+            try:
+                return self._run(conn, sql, params, is_select)
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                # Connessione caduta (idle timeout Supabase): la scarto e riprovo una volta
+                try:
+                    pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+                conn = None
+                conn = pool.getconn()
+                return self._run(conn, sql, params, is_select)
         except Exception as e:
+            if conn is not None:
+                try:
+                    conn.rollback()  # OGNI errore deve lasciare la connessione pulita
+                except Exception:
+                    pass
             if strict:
                 raise RuntimeError(f"Errore DB: {e}") from e
             st.error(f"Errore DB: {e}")
-            return [] if sql.strip().upper().startswith("SELECT") else False
+            return [] if is_select else False
         finally:
-            if conn:
-                conn.close()
+            if conn is not None:
+                try:
+                    pool.putconn(conn)
+                except Exception:
+                    pass
 
 
 class LineaManager:
@@ -1482,22 +1517,43 @@ class SchedulerManager:
         )
 
     def get_unscheduled_for_run(self, run_id: int):
-        if not self._table_exists("sched_unscheduled"):
+        # Try the dedicated table first.
+        if self._table_exists("sched_unscheduled"):
+            cols = self._get_table_columns("sched_unscheduled")
+            id_col = "unscheduled_id" if "unscheduled_id" in cols else "unscheduled"
+            rows = self.db.execute(
+                f"""
+                SELECT
+                  {id_col} AS unscheduled_id,
+                  run_id,
+                  order_id,
+                  code,
+                  qty,
+                  reason
+                FROM public.sched_unscheduled
+                WHERE run_id = %s
+                ORDER BY {id_col}
+                """,
+                (run_id,),
+            )
+            if rows:
+                return rows
+
+        # Fallback: derive from sched_orders minus the tasks in this run.
+        if not self._table_exists("sched_orders") or not self._table_exists("sched_tasks"):
             return []
-        cols = self._get_table_columns("sched_unscheduled")
-        id_col = "unscheduled_id" if "unscheduled_id" in cols else "unscheduled"
         return self.db.execute(
-            f"""
+            """
             SELECT
-              {id_col} AS unscheduled_id,
-              run_id,
-              order_id,
-              code,
-              qty,
-              reason
-            FROM public.sched_unscheduled
-            WHERE run_id = %s
-            ORDER BY {id_col}
+              o.order_id,
+              o.code,
+              o.qty,
+              'non pianificato in questo run' AS reason
+            FROM public.sched_orders o
+            WHERE o.order_id NOT IN (
+                SELECT DISTINCT t.order_id FROM public.sched_tasks t WHERE t.run_id = %s
+            )
+            ORDER BY o.order_id
             """,
             (run_id,),
         )
